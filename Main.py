@@ -18,8 +18,10 @@ from io import BytesIO
 import datetime
 import time
 from datetime import datetime, date
+from dotenv import load_dotenv
 
-#CALL THEM MIXTAPES
+load_dotenv()
+
 
 class SpotifyAuth():
     def __init__(self, client_id, client_secret, redirect_uri, scope):
