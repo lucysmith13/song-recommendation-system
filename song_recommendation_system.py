@@ -22,7 +22,7 @@ def main():
     master.geometry("800x600")
     master.configure(background="white")
 
-    app = SpotifyApp(master, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE, LAST_FM_KEY)
+    app = SpotifyApp(master, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE, LAST_FM_KEY, OPEN_WEATHER_KEY)
     master.mainloop()
 
 
