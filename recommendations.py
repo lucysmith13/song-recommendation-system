@@ -7,11 +7,10 @@ from datetime import date
 load_dotenv()
 
 class Recommendations():
-    def __init__(self, stats_obj, access_token, last_fm_key):
+    def __init__(self, access_token, last_fm_key):
         self.sp = spotipy.Spotify(auth=access_token)
         self.access_token = access_token
         self.last_fm_api_key = last_fm_key
-        self.stats = stats_obj
 
     def add_to_playlist(self, playlist_name, track_uris):
         user_id = self.sp.current_user()['id']
