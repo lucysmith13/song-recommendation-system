@@ -1,8 +1,5 @@
+import spotipy, urllib, time, webbrowser
 from spotipy import SpotifyOAuth
-import spotipy, time, urllib.parse, webbrowser, socketserver, http.server
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class SpotifyAuth():
     def __init__(self, client_id, client_secret, redirect_uri, scope):
@@ -24,26 +21,34 @@ class SpotifyAuth():
 
     def get_access_token(self, code):
         try:
-            token_info = self.sp_oauth.get_access_token(code, as_dict=True)
-            if isinstance(token_info, dict):
+            token_info = self.sp_oauth.get_access_token(code)
+            if isinstance(token_info, dict) and 'access_token' in token_info:
                 self.access_token = token_info.get('access_token')
+                if not self.access_token:
+                    raise Exception('[DEBUG] No access token found.')
             else:
                 self.access_token = token_info
-
             self.token_info = token_info
-            print(f"[DEBUG] Returning access_token from get_access_token: {self.access_token}")
+            print(f"[DEBUG] Access token set: {self.access_token}")
             return self.access_token
-        except spotipy.exceptions.SpotifyOAuthError as e:
-            print("[ERROR] Failed to get access token:", str(e))
-            return None
+        except Exception as e:
+            print("[ERROR] Failed to retreive access token:", str(e))
+        return None
 
     def get_valid_token(self):
-        if self.token_info and not self.sp_oauth.is_token_expired(self.token_info):
-            return self.token_info['access_token']
-        elif self.token_info:
-            self.token_info = self.sp_oauth.refresh_access_token(self.token_info['refresh_token'])
-            return self.token_info['access_token']
-        return None
+        try:
+            if self.token_info and not self.sp_oauth.is_token_expired(self.token_info):
+                return self.token_info['access_token']
+            elif self.token_info:
+                self.token_info = self.sp_oauth.refresh_access_token(self.token_info['refresh_token'])
+                return self.token_info['access_token']
+            else:
+                print("[ERROR] No token info available. Please reauthorize.")
+            return None
+        except Exception as e:
+            print(f"[ERROR] Token refresh failed: {str(e)}")
+            return None
+
 
     def handle_redirect(self, webview_window):
         while True:
@@ -54,13 +59,16 @@ class SpotifyAuth():
                 if auth_code:
                     print(f"Authorization code: {auth_code[0]}")
                     token_info = self.get_access_token(auth_code[0])
-                    print(f"Access token: {token_info['access_token']}")
+                    if token_info:
+                        print(f"[DEBUG] Access token: {token_info['access_token']}")
+                    else:
+                        print("[ERROR] Token retrieval failed.")
                     webview_window.destroy()
                 break
             time.sleep(1)
 
     def start_oauth_flow(self):
-        self.token_info = self.sp_oauth.get_cached_token()
+        self.token_info = self.sp_oauth.get_access_token(as_dict=True)
         if not self.token_info:
             auth_url = self.sp_oauth.get_authorize_url()
             webbrowser.open(auth_url)
@@ -70,7 +78,4 @@ class SpotifyAuth():
             self.token_info = self.sp_oauth.get_access_token(code)
 
     def start_local_server(self):
-        handler = http.server.SimpleHTTPRequestHandler
-        with socketserver.TCPServer(("localhost", 8888), handler) as httpd:
-            print("Server started at http://localhost:8888")
-            httpd.serve_forever()
+        self.app.run(host='localhost', port=8080, debug=True)
