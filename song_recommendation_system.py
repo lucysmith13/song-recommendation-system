@@ -1,30 +1,940 @@
-import os
-from NEA.ui import SpotifyApp
-import tkinter
-from tkinter import Tk
-from dotenv import load_dotenv
+# import os
+# from NEA.ui import SpotifyApp
+# import tkinter
+# from tkinter import Tk
+# from dotenv import load_dotenv
+#
+#
+# def main():
+#     CLIENT_ID = os.getenv("CLIENT_ID")
+#     CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+#     REDIRECT_URI = 'http://127.0.0.1:8080/callback'
+#     SCOPE = "user-library-read user-top-read playlist-modify-public playlist-modify-private"
+#     LAST_FM_KEY = os.getenv('LAST_FM_KEY')
+#     OPEN_WEATHER_KEY = os.getenv('OPEN_WEATHER_KEY')
+#
+#     if os.path.exists(".cache"):
+#         os.remove(".cache")
+#
+#
+#     master = Tk()
+#     master.geometry("800x600")
+#     master.configure(background="white")
+#
+#     app = SpotifyApp(master, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE, LAST_FM_KEY, OPEN_WEATHER_KEY)
+#     master.mainloop()
+#
+#
+# if __name__ == "__main__":
+#     main()
 
-load_dotenv()
+import os, spotipy, tkinter as tk, requests, random, customtkinter as ctk, time
+import dateutil.utils
+from bottle import url
+from spotipy.oauth2 import SpotifyOAuth
+from PIL import Image, ImageTk
+from tkinter import ttk, PhotoImage
+import webview
+import urllib.parse
+from flask import Flask, request
+import threading
+import webbrowser
+import re
+import http.server
+import socketserver
+from tkinter import font, messagebox
+import json
+from io import BytesIO
+import datetime
+import time
+from datetime import datetime, date
+from flask.cli import load_dotenv
+from flask import Flask, request, redirect
 
-def main():
+class SpotifyAuth():
+    def __init__(self, client_id, client_secret, redirect_uri, scope):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+        self.scope = scope
+
+        self.sp_oauth = SpotifyOAuth(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            scope=scope
+        )
+        self.token_info = None
+
+    def get_auth_url(self):
+        return self.sp_oauth.get_authorize_url()
+
+    def get_access_token(self, code):
+        try:
+            token_info = self.sp_oauth.get_access_token(code)
+            if isinstance(token_info, dict) and 'access_token' in token_info:
+                self.access_token = token_info.get('access_token')
+                if not self.access_token:
+                    raise Exception('[DEBUG] No access token found.')
+            else:
+                self.access_token = token_info
+            self.token_info = token_info
+            print(f"[DEBUG] Access token set: {self.access_token}")
+            return self.access_token
+        except Exception as e:
+            print("[ERROR] Failed to retreive access token:", str(e))
+        return None
+
+    def get_valid_token(self):
+        try:
+            if self.token_info and not self.sp_oauth.is_token_expired(self.token_info):
+                return self.token_info['access_token']
+            elif self.token_info:
+                self.token_info = self.sp_oauth.refresh_access_token(self.token_info['refresh_token'])
+                return self.token_info['access_token']
+            else:
+                print("[ERROR] No token info available. Please reauthorize.")
+            return None
+        except Exception as e:
+            print(f"[ERROR] Token refresh failed: {str(e)}")
+            return None
+
+
+    def handle_redirect(self, webview_window):
+        while True:
+            current_url = webview_window.get_current_url()
+            if self.redirect_uri in current_url:
+                parsed_url = urllib.parse.urlparse(current_url)
+                auth_code = urllib.parse.parse_qs(parsed_url.query).get("code")
+                if auth_code:
+                    print(f"Authorization code: {auth_code[0]}")
+                    token_info = self.get_access_token(auth_code[0])
+                    if token_info:
+                        print(f"[DEBUG] Access token: {token_info['access_token']}")
+                    else:
+                        print("[ERROR] Token retrieval failed.")
+                    webview_window.destroy()
+                break
+            time.sleep(1)
+
+    def start_oauth_flow(self):
+        self.token_info = self.sp_oauth.get_access_token(as_dict=True)
+        if not self.token_info:
+            auth_url = self.sp_oauth.get_authorize_url()
+            webbrowser.open(auth_url)
+            print("Please log in and paste the full redirect URL here.")
+            response = input("Redirect URL: ")
+            code = self.sp_oauth.parse_response_code(response)
+            self.token_info = self.sp_oauth.get_access_token(code)
+
+    def start_local_server(self):
+        self.app.run(host='localhost', port=8080, debug=True)
+
+class SpotifyApp():
+    def __init__(self, master, client_id, client_secret, redirect_uri, scope):
+        self.master = master
+        self.client_id = client_id
+        self.spotify_auth = SpotifyAuth(self.client_id, client_secret, redirect_uri, scope)
+        self.token_received = threading.Event()
+        self.access_token = None
+        self.stats = None
+        self.user_name = "User"
+        self.recs = None
+
+        self.master.title("Song recommendation system")
+
+        self.authorize_button = tk.Button(self.master, text="Authorize with Spotify", command=self.authorize, font=("",10), background="red")
+        self.authorize_button.pack(pady=20)
+        self.authorize_button.place(x=0, y=0)
+
+        self.welcome_label = tk.Label(self.master, text=f"Welcome {self.user_name}!", font=("",16, "bold"), background="white")
+        self.welcome_label.place(x=300, y=75)
+
+        self.stats_button = tk.Button(self.master, text=f"{self.user_name}'s Spotify\nStatistics:", background="darkgray", borderwidth=5)
+        self.stats_button['command'] = self.stats_button_clicked
+        self.stats_button.place(x=100, y=150, width="200", height="200")
+
+        self.recs_button = tk.Button(self.master, text="Song\nRecommendations: ", background="darkgray", borderwidth=5)
+        self.recs_button['command'] = self.recs_button_clicked
+        self.recs_button.place(x=450, y=150, width="200", height="200")
+
+        self.stats_frame = tk.Frame(self.master, bg="white")
+        self.stats_frame.place(relwidth=1, relheight=1)
+
+        self.stats_label = tk.Label(self.stats_frame, text=f"{self.user_name}'s Spotify Stats: ", font=("",16, "bold"), background="white")
+        self.stats_label.pack(pady=20)
+
+        self.back_button1 = tk.Button(self.stats_frame, text="Back", command=self.show_main_frame, background="white")
+        self.back_button1.place(x=0,y=0)
+
+        self.recs_frame = tk.Frame(self.master, bg="white")
+        self.recs_frame.place(relwidth=1, relheight=1)
+
+        self.recs_label = tk.Label(self.recs_frame, text=f"{self.user_name}'s recommendations:", font=("",16, "bold"), background="white")
+        self.recs_label.pack(pady=20)
+
+        self.back_button2 = tk.Button(self.recs_frame, text="Back", command=self.show_main_frame, background="white")
+        self.back_button2.place(x=0, y=0)
+
+        self.recs_frame.place_forget()
+
+        self.app = Flask(__name__)
+        self.setup_routes()
+        threading.Thread(target=self.run_flask, daemon=True).start()
+
+        self.stats_frame.place_forget()
+        self.recs_frame.place_forget()
+        self.show_main_frame()
+
+        self.all_time_stats_label = tk.Label(self.stats_frame, text="All time stats: ", font=("",14, "bold"), background="darkgray", bd=5, anchor="n")
+        self.all_time_stats_label.place(x=550, y=150, width=250, height=450)
+
+        self.user_recs_button = tk.Button(self.recs_frame, text="User-Based\nRecommendations", background="green")
+        self.user_recs_button['command'] = self.user_recs_button_clicked
+        self.user_recs_button.place(x=50, y=100, width=150, height=150)
+
+        self.albums_button = tk.Button(self.recs_frame, text="Random Album Picker", background="green")
+        self.albums_button['command'] = self.albums_button_clicked
+        self.albums_button.place(x=300, y=100, width=150, height=150)
+
+        self.albums_frame = tk.Frame(self.master, bg="white")
+        self.albums_frame.place(relwidth=1, relheight=1)
+
+        self.albums_label = tk.Label(self.albums_frame, text="Random Album Picker", font=("",14, "bold"), background="white")
+        self.albums_label.pack(pady=20)
+
+        self.back_button4 = tk.Button(self.albums_frame, text="Back", command=self.show_recs_frame, background="white")
+        self.back_button4.place(x=0,y=0)
+
+        self.refresh_album_button = tk.Button(self.albums_frame, text="Refresh", background="white")
+        self.refresh_album_button.place(x=750, y=0)
+        self.refresh_album_button['command'] = self.refresh_random_album
+
+        self.genre_recs_button = tk.Button(self.recs_frame, text="Genre Recommendations", background="green")
+        self.genre_recs_button['command'] = self.genre_button_clicked
+        self.genre_recs_button.place(x=550, y=100, width=150, height=150)
+
+        self.user_recs_frame = tk.Frame(self.master, bg="white")
+        self.user_recs_frame.place(relwidth=1, relheight=1)
+
+        self.genre_recs_frame = tk.Frame(self.master, bg="white")
+        self.user_recs_frame.place(relwidth=1, relheight=1)
+
+        self.back_button5 = tk.Button(self.genre_recs_frame, text="Back", command=self.show_recs_frame, background="white")
+        self.back_button5.place(x=0,y=0)
+
+        self.user_recs_label = tk.Label(self.user_recs_frame, text="User-based Recommendations", font=("",16, "bold"), background="white")
+        self.user_recs_label.pack(pady=20)
+
+        self.genre_recs_label = tk.Label(self.genre_recs_frame, text="Genre Recommendations", font=("", 16, "bold"), background="white")
+        self.genre_recs_label.pack(pady=20)
+
+        self.back_button3 = tk.Button(self.user_recs_frame, text="Back", command=self.show_recs_frame, background="white")
+        self.back_button3.place(x=0, y=0)
+
+        tk.Label(self.genre_recs_frame, text="Number of Tracks:").pack()
+        self.num_tracks_entry = tk.Entry(self.genre_recs_frame)
+        self.num_tracks_entry.pack()
+        tk.Label(self.genre_recs_frame, text="Genre:").pack()
+        self.genre_entry = tk.Entry(self.genre_recs_frame)
+        self.genre_entry.pack()
+        generate_recommendations_button = tk.Button(self.genre_recs_frame, text="Generate Recommendations")
+        generate_recommendations_button['command'] = self.generate_genre_recommendations
+        generate_recommendations_button.pack(pady=10)
+        self.results_listbox = tk.Listbox(self.genre_recs_frame, width=70, height=15)
+        self.results_listbox.pack(pady=20)
+        tk.Label(self.genre_recs_frame, text="Playlist Name:").pack()
+        self.playlist_name_option = tk.Entry(self.genre_recs_frame)
+        self.playlist_name_option.pack()
+        self.add_to_playlist_button = tk.Button(self.genre_recs_frame, text="Add to Playlist", state="disabled")
+        self.add_to_playlist_button['command'] = self.add_to_playlist
+        self.add_to_playlist_button.pack(pady=10)
+
+        tk.Label(self.user_recs_frame, text="Time-Range:").pack()
+        self.time_range_options = ["short_term", "medium_term", "long_term"]
+        self.selected_time_range_option = tk.StringVar()
+        self.time_range_dropdown = tk.OptionMenu(self.user_recs_frame, self.selected_time_range_option, *self.time_range_options)
+        self.time_range_dropdown.pack()
+        tk.Label(self.user_recs_frame, text="Number of tracks").pack()
+        self.num_tracks = tk.Entry(self.user_recs_frame)
+        self.num_tracks.pack()
+        generate_user_recs_button = tk.Button(self.user_recs_frame, text="Generate Recommendations")
+        generate_user_recs_button['command'] = self.generate_user_recs
+        generate_user_recs_button.pack(pady=10)
+        self.results_listbox2 = tk.Listbox(self.user_recs_frame, width=70, height=15)
+        self.results_listbox2.pack(pady=20)
+        self.scrollbar = tk.Scrollbar(self.user_recs_frame)
+        self.scrollbar.pack(side=tk.RIGHT, fill= tk.BOTH)
+        tk.Label(self.user_recs_frame, text="Playlist Name: ").pack()
+        self.playlist_name_option = tk.Entry(self.user_recs_frame)
+        self.playlist_name_option.pack()
+        self.add_to_playlist_button2 = tk.Button(self.user_recs_frame, text="Add to Playlist", state="disabled")
+        self.add_to_playlist_button2.pack(pady=10)
+        self.add_to_playlist_button2['command'] = self.add_to_playlist
+
+        self.weather_recs_button = tk.Button(self.recs_frame, text="Weather\nRecommendations", background="green")
+        self.weather_recs_button['command'] = self.show_weather_recs_frame
+        self.weather_recs_button.place(x=50, y=325, width=150, height=150)
+        self.weather_recs_frame = tk.Frame(self.master, background="white")
+        self.weather_recs_frame.place(relwidth=1, relheight=1)
+        self.back_button6 = tk.Button(self.weather_recs_frame, text="Back", command=self.show_recs_frame, background="white")
+        self.back_button6.place(x=0, y=0)
+        self.weather_recs_label = tk.Label(self.weather_recs_frame, text="Weather Recommendations", font=("",16, "bold"), background="white")
+        self.weather_recs_label.pack(pady=20)
+        self.weather_recs_name = tk.Label(self.weather_recs_frame, text="[PLAYLIST NAME HERE]", font=("", 14, "bold"), background="white")
+        self.weather_recs_name.pack(pady=20)
+        self.weather_recs_listbox = tk.Listbox(self.weather_recs_frame, width=70, height=15)
+        self.weather_recs_listbox.pack(pady=20)
+        self.scrollbar3 = tk.Scrollbar(self.weather_recs_frame)
+        self.scrollbar3.pack(side=tk.RIGHT, fill=tk.BOTH)
+        self.generate_weather_button = tk.Button(self.weather_recs_frame, text="Generate Recommendations")
+        self.generate_weather_button.pack()
+        self.generate_weather_button['command'] = self.generate_weather_recs
+        self.add_to_playlist_button3 = tk.Button(self.weather_recs_frame, text="Add to Playlist", state="disabled")
+        self.add_to_playlist_button3.pack(pady=10)
+        self.add_to_playlist_button3['command'] = self.add_to_playlist
+
+        self.another_recs_button = tk.Button(self.recs_frame, text="BLANK", background="green")
+        self.another_recs_button.place(x=300, y=325, width=150, height=150)
+
+        self.final_recs_button = tk.Button(self.recs_frame, text="BLANK", background="green")
+        self.final_recs_button.place(x=550, y=325, width=150, height=150)
+
+        self.weather_recs_frame.place_forget()
+        self.user_recs_frame.place_forget()
+        self.genre_recs_frame.place_forget()
+        self.albums_frame.place_forget()
+        self.refresh_random_album()
+        self.show_main_frame()
+
+        auth_url = self.spotify_auth.get_auth_url()
+        print(f"[DEBUG] Full auth URL: {auth_url}")
+
+    def setup_routes(self):
+        @self.app.route('/callback')
+        def callback():
+            try:
+                print("[DEBUG] Callback hit!")
+                code = request.args.get("code")
+
+                if code:
+                    print(f"[DEBUG] Authorization code: {code}")
+                    token_info = self.spotify_auth.get_access_token(code)
+                    if not token_info:
+                        token_info = self.spotify_auth.get_access_token(code)
+                    if token_info:
+                        print(f"[DEBUG] Access token: {token_info}")
+                        return "Authentication successful, you can close the browser"
+                return f"[ERROR] No authentication code received", 400
+            except Exception as e:
+                print("[ERROR] Callback error:", str(e))
+                return "[ERROR] An error occurred during authentication.", 500
+
+
+    def run_flask(self):
+        self.app.run(host='127.0.0.1', port=8080, debug=False)
+
+
+    def authorize(self):
+        auth_url = self.spotify_auth.get_auth_url()
+        print(f"[DEBUG] Auth URL: {auth_url}")
+        webbrowser.open_new_tab(auth_url)
+
+        def wait_for_auth():
+            timeout = 10
+            interval = 0.5
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                self.access_token = self.spotify_auth.get_valid_token()
+                print(f"[DEBUG] access_token AFTER validation: {self.access_token}")
+
+                if self.access_token:
+                    break
+                time.sleep(interval)
+
+            if not self.access_token:
+                print("[ERROR] Access token is still None after waiting")
+                return
+
+            self.stats = Stats(self.access_token)
+            print(f"[DEBUG] Stats object created: {self.stats}")
+            sp = spotipy.Spotify(auth=self.access_token)
+            user_info = sp.me()
+            print(f"[DEBUG] User Info = {user_info}")
+
+            self.user_name = user_info.get('display_name', 'Unknown User')
+            print(f"[DEBUG] User name: {self.user_name}")
+
+            self.welcome_label.config(text=f"Welcome {self.user_name}!", background="white")
+            self.stats_label.config(text=f"{self.user_name}'s Spotify Stats: ", font=("",16, "bold"), background="white")
+            self.recs_label.config(text=f"{self.user_name}'s recommendations: ", font=("",16, "bold"), background="white")
+
+            self.stats_button.config(state=tk.NORMAL)
+            self.recs_button.config(state=tk.NORMAL)
+
+            print(f"[ERROR] Access token in authorize: {self.access_token}")
+            if self.stats and self.access_token:
+                self.recs = Recommendations(self.stats, self.access_token, LAST_FM_KEY)
+                print("[DEBUG] Recommendations object created:", self.recs)
+            else:
+                print("[ERROR] Stats or access token is missing, recommendations cannot be created.")
+
+        wait_for_auth()
+
+
+
+    def add_to_playlist(self):
+        playlist_name = self.playlist_name_option.get().strip()
+        if not playlist_name:
+            messagebox.showerror("Error", "Please enter a playlist name.")
+            return
+
+        sp = spotipy.Spotify(auth=self.access_token)
+        user_id = sp.current_user()['id']
+
+        playlist = sp.user_playlist_create(
+            user = user_id,
+            name = playlist_name,
+            public = True,
+            description = "Created by Lucy's Song recommendation system"
+        )
+
+        print(f"[DEBUG] Created playlist: {playlist['name']}")
+
+        for i in range(0, len(self.current_track_uris), 100):
+            chunk = self.current_track_uris[i:i+100]
+            sp.playlist_add_items(playlist_id=playlist['id'], items=chunk)
+
+        print(f"[DEBUG] Added tracks to playlist successfully")
+
+        messagebox.showinfo(title="Playlist Creation", message=f"{playlist['name']} created successfully")
+
+    def generate_genre_recommendations(self):
+        if not self.recs:
+            messagebox.showerror("Error", "Recs not loaded, please authorize first.")
+            return
+        print(f"[DEBUG] Access token in recommendations: {self.access_token}")
+        print(f"[DEBUG] Stats object in recommendations: {self.stats}")
+        genre = self.genre_entry.get().strip().lower()
+        limit = int(self.num_tracks_entry.get())
+        recommendations, uris = self.recs.last_fm_genres(genre, limit)
+        self.current_track_uris = uris
+
+        self.results_listbox.delete(0, tk.END)
+
+        for idx, rec in enumerate(recommendations, start=1):
+            self.results_listbox.insert(tk.END, f"{idx}. {rec}")
+
+        self.add_to_playlist_button.config(state=tk.NORMAL)
+        self.add_to_playlist_button2.config(state=tk.NORMAL)
+
+    def generate_user_recs(self):
+        if not self.recs:
+            messagebox.showerror("Error", "Recommendations not loaded. Please authorize again.")
+            return
+
+        try:
+            top_artist_limit = 10
+            similar_artist_limit = 5
+            total_tracks_limit = int(self.num_tracks.get())
+            selected_time_range_option_value = self.selected_time_range_option.get()
+            results, uris = self.recs.user_top_recs(top_artist_limit, similar_artist_limit, total_tracks_limit,selected_time_range_option_value)
+            self.current_track_uris = uris
+
+            self.results_listbox2.delete(0, tk.END)
+
+            self.results_listbox2.config(yscrollcommand = self.scrollbar.set)
+            self.scrollbar.config(command = self.results_listbox2.yview)
+
+            for idx, rec in enumerate(results, start=1):
+                self.results_listbox2.insert(tk.END, f"{idx}. {rec}")
+
+            self.add_to_playlist_button.config(state=tk.NORMAL)
+            self.add_to_playlist_button2.config(state=tk.NORMAL)
+        except AttributeError:
+            print("[ERROR] No recommendations object has been created.")
+            messagebox.showerror("Error", "Recommendations not loaded. Please authorize again.")
+    def generate_weather_recs(self):
+        recommendations, uris, playlist_name = self.recs.weather_recs(OPEN_WEATHER_KEY)
+        self.current_track_uris = uris
+
+        self.weather_recs_listbox.delete(0, tk.END)
+        self.results_listbox2.config(yscrollcommand = self.scrollbar3.set)
+        self.scrollbar3.config(command = self.weather_recs_listbox.yview)
+
+        for idx, rec in enumerate(recommendations, start=1):
+            self.weather_recs_listbox.insert(tk.END, f"{idx}. {rec}")
+
+        self.add_to_playlist_button.config(state=tk.NORMAL)
+        self.add_to_playlist_button2.config(state=tk.NORMAL)
+        self.add_to_playlist_button3.config(state=tk.NORMAL)
+
+    def stats_button_clicked(self):
+        if self.stats is None:
+            messagebox.showerror("Error", "Spotify data not loaded yet. Please wait or reauthorize.")
+            return
+
+        self.master.configure(bg="white")
+        self.hide_main_frame()
+        self.stats_frame.place(relwidth=1, relheight=1)
+
+        all_time_artists = self.stats.get_top_artists(limit=3, time_range="long_term")
+        all_time_tracks = self.stats.get_top_tracks(limit=3, time_range="long_term")
+
+        self.all_time_stats_label.config(text="Top Artists (All Time):\n" + "\n".join(all_time_artists) + "\n\nTop Tracks (All Time):\n" + "\n".join(all_time_tracks))
+
+    def recs_button_clicked(self):
+        self.master.configure(bg="white")
+        self.hide_main_frame()
+        self.recs_frame.place(relwidth=1, relheight=1)
+
+    def user_recs_button_clicked(self):
+        self.master.configure(bg="white")
+        self.hide_stats_frame()
+        self.hide_recs_frame()
+        self.user_recs_frame.place(relwidth=1, relheight=1)
+
+    def genre_button_clicked(self):
+        self.master.configure(bg="white")
+        self.hide_stats_frame()
+        self.hide_recs_frame()
+        self.genre_recs_frame.place(relwidth=1, relheight=1)
+
+    def albums_button_clicked(self):
+        self.master.configure(bg="white")
+        self.hide_stats_frame()
+        self.hide_recs_frame()
+        self.albums_frame.place(relwidth=1, relheight=1)
+
+        album = self.recs.album_chooser()
+
+        name = album['name']
+        artist = ", ".join(artist['name'] for artist in album['artists'])
+        image_url = album['images'][0]['url'] if album['images'] else None
+
+        label = tk.Label(self.albums_frame, text=f"{name} by\n{artist}", bg="white", font=("", 16, "bold"))
+        label.place(x=270, y=100)
+
+        img_data = requests.get(image_url).content
+        img = Image.open(BytesIO(img_data)).resize((300,300))
+        photo = ImageTk.PhotoImage(img)
+
+        image_label = tk.Label(self.albums_frame, image=photo, bg="white")
+        image_label.image = photo
+        image_label.place(x=250, y=170)
+
+    def hide_main_frame(self):
+        self.authorize_button.place_forget()
+        self.welcome_label.place_forget()
+        self.recs_button.place_forget()
+        self.stats_button.place_forget()
+
+    def hide_stats_frame(self):
+        self.stats_frame.place_forget()
+
+    def hide_recs_frame(self):
+        self.recs_frame.place_forget()
+
+    def show_stats_frame(self):
+        self.genre_recs_frame.place_forget()
+        self.all_time_stats_label.place(x=550, y=150, width=250, height=450)
+
+    def show_recs_frame(self):
+        self.genre_recs_frame.place_forget()
+        self.albums_frame.place_forget()
+        self.user_recs_frame.place_forget()
+        self.recs_frame.place(relwidth=1, relheight=1)
+
+    def show_weather_recs_frame(self):
+        self.master.configure(bg="white")
+        self.hide_recs_frame()
+        self.hide_stats_frame()
+        self.weather_recs_frame.place(relwidth=1, relheight=1)
+
+    def show_main_frame(self):
+        self.stats_frame.place_forget()
+        self.recs_frame.place_forget()
+        self.authorize_button.place(x=0, y=0)
+        self.welcome_label.place(x=300, y=75)
+        self.stats_button.place(x=100, y=150, width=200, height=200)
+        self.recs_button.place(x=450, y=150, width=200, height=200)
+
+
+    def refresh_random_album(self):
+        if self.recs is None:
+            print("[ERROR] Recommendations not loaded yet, authorize first.")
+            return None
+        self.albums_button_clicked()
+
+class Stats():
+    def __init__(self, access_token):
+        self.sp = spotipy.Spotify(auth=access_token)
+
+    def get_top_artists(self, limit, time_range):
+        results = self.sp.current_user_top_artists(limit=limit, time_range=time_range)
+        return [artist['name'] for artist in results['items']]
+
+    def get_top_tracks(self, limit, time_range):
+        results = self.sp.current_user_top_tracks(limit=limit, time_range=time_range)
+        return [track['name'] for track in results['items']]
+
+class Recommendations():
+    def __init__(self, stats_obj, access_token, last_fm_key):
+        self.sp = spotipy.Spotify(auth=access_token)
+        self.access_token = access_token
+        self.last_fm_api_key = LAST_FM_KEY
+        self.stats = stats_obj
+
+    def add_to_playlist(self, playlist_name, track_uris):
+        user_id = self.sp.current_user()['id']
+        playlist = self.sp.user_playlist_create(
+            user=user_id,
+            name=playlist_name,
+            public=True,
+            description=None
+        )
+        print(f"[DEBUG] Created playlist {playlist['name']} - {playlist['external_urls']['spotify']}")
+
+        for i in range(0, len(track_uris), 100):
+            chunk = track_uris[i:i+100]
+            self.sp.playlist_add_items(playlist_id=playlist['id'], items=chunk)
+
+        print(f"[DEBUG] Added tracks to the playlist successfully")
+
+    def user_top_recs(self,top_artist_limit, similar_artist_limit, total_tracks_limit,time_range):
+        print("[DEBUG] Fetching user's top artists...")
+        top_artists = self.sp.current_user_top_artists(limit=top_artist_limit, time_range=time_range)
+        top_artist_names = [artist['name'] for artist in top_artists['items']]
+        print(f"[DEBUG] Top artists: {top_artist_names}")
+
+        similar_artists = set()
+        for artist_name in top_artist_names:
+            print(f"[DEBUG] Getting similar artists for {artist_name}")
+            url = "http://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist={}&api_key={}&format=json".format(
+                artist_name, LAST_FM_KEY)
+            try:
+                response = requests.get(url)
+                if response.status_code != 200:
+                    print(f"[ERROR] Failed to get similar artists for {artist_name}, Status code: {response.status_code}")
+                    continue
+
+                data = response.json()
+                print(f"[DEBUG] Raw similar data: {data}")
+
+                similar = data.get("similarartists", {}).get("artist", [])
+                if similar:
+                    for artist in similar[:int(similar_artist_limit)]:
+                        similar_artists.add(artist["name"])
+                else:
+                    print("f[WARNING] No similar artists found for {artist_name}")
+            except Exception as e:
+                print(f"[ERROR] Exception while processing {artist_name}: {e}")
+
+        print(f"[DEBUG] Found similar artists: {list(similar_artists)}")
+
+        total_artists = len(similar_artists)
+        if total_artists == 0:
+            print("[ERROR] No similar artists found. Cannot proceed with recommendations.")
+            return [], []
+
+        tracks_per_artist = max(total_tracks_limit // total_artists, 1)
+
+        recommended_tracks = []
+        for artist_name in similar_artists:
+            print(f"[DEBUG] Searching for artist on Spotify {artist_name}")
+            search_results = self.sp.search(q=artist_name, type='artist', limit=1)
+            print(f"[DEBUG] Spotify search result FOR {artist_name}: {search_results}")
+
+            if search_results['artists']['items']:
+                artist_id = search_results['artists']['items'][0]['id']
+                print(f"[DEBUG] Artist ID for {artist_name}: {artist_id}")
+
+                top_tracks = self.sp.artist_top_tracks(artist_id)['tracks']
+                print(f"[DEBUG] Top tracks for {artist_name}: {top_tracks}")
+
+                if top_tracks:
+                    recommended_tracks.extend(top_tracks[:tracks_per_artist])
+                else:
+                    print(f"[WARNING] No top tracks found for artist: {artist_name}")
+            else:
+                print(f"[ERROR] No artist found for search query {artist_name}")
+
+        recommended_tracks = recommended_tracks[:total_tracks_limit]
+        print(f"[DEBUG] Tracks being added to recommendations: {recommended_tracks}")
+
+        final_results = []
+        final_results_uris = []
+        for track in recommended_tracks:
+            artist_names = ", ".join(artist['name'] for artist in track['artists'])
+            final_results.append(f"{track['name']} by {artist_names}")
+            final_results_uris.append(track['uri'])
+
+        print(f"[DEBUG] Final recommended tracks: {final_results}")
+        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
+        # if add_to_playlist_option.lower().startswith("y"):
+        #     # adds recs to playlist, does this work????
+        #     self.add_to_playlist("User Top Recs", final_results_uris)
+        # else:
+        #     pass
+        return final_results, final_results_uris
+
+    def last_fm_genres(self, genre,limit):
+        url = 'http://ws.audioscrobbler.com/2.0/'
+        params = {
+            'method': 'tag.gettoptracks',
+            'tag': genre,
+            'api_key': self.last_fm_api_key,
+            'format' : 'json',
+            'limit': limit
+        }
+        response = requests.get(url, params=params)
+
+        if response.status_code != 200:
+            print(f"[ERROR] Failed to get recommendations for {genre}")
+            print(f"Status code: {response.status_code}")
+            print(f"Response text: {response.text}")
+            return []
+
+        data = response.json()
+        tracks = data.get('tracks', {}).get('track', [])
+        recommendations = []
+        uris = []
+        for track in tracks:
+            name = track.get('name')
+            artist = track.get('artist', {}).get('name')
+            recommendations.append(f"{name} by {artist}")
+            query = f"{name} {artist}"
+
+            result = self.sp.search(q=query, type='track', limit=limit)
+            print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
+            items = result['tracks']['items']
+            if items:
+                uri = items[0]['uri']
+                uris.append(uri)
+
+        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
+        # if add_to_playlist_option.lower().startswith("y"):
+        #     self.add_to_playlist(f"{limit} {genre} songs", uris)
+        # else:
+        #     pass
+        return recommendations, uris
+
+    def album_chooser(self):
+        saved_albums = self.sp.current_user_saved_albums(limit=50)
+        albums = saved_albums['items']
+        if not albums:
+            return None
+        chosen  = random.choice(albums)['album']
+        return chosen
+
+    def seasonal_recs(self):
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            tod = "morning"
+        elif 12 <= hour < 18:
+            tod = "afternoon"
+        elif 18 <= hour < 21:
+           tod = "evening"
+        else:
+            tod = "night"
+
+        month = datetime.now().month
+        today = date.today()
+
+        if 3 <= month <= 5:
+            season = "spring"
+        elif 6 <= month <= 8:
+            season = "summer"
+        elif 9 <= month <= 11:
+            season = "autumn"
+        else:
+            season = "winter"
+
+        if today == date(today.year, 12, 25):
+            #its christmas!
+            genre = ["christmas"]
+        if season == "spring":
+            descrip = "spring-like"
+            genre = ["indie-pop", "post-punk", "blues", "folk", "acoustic"]
+        if season == "summer":
+            descrip = "summery"
+            genre = ["reggae", "jungle", "hiphop", "pop-punk", "surf rock", "house"]
+        if season == "autumn":
+            descrip = "autumnal"
+            genre = ["grunge", "classic-rock", "emo", "indie-rock", "jazz", "neo-soul", "ambient", "lo-fi"]
+        if season == "winter":
+            descrip = "winterly"
+            genre = ["classical", "trip-hop", "post-rock", "industrial", "death-metal"]
+
+        random_genre = random.choice(genre)
+
+        url = 'http://ws.audioscrobbler.com/2.0/'
+        params = {
+            'method': 'tag.gettoptracks',
+            'tag': random_genre,
+            'api_key': self.last_fm_api_key,
+            'format' : 'json',
+            'limit': 30
+        }
+        response = requests.get(url, params=params)
+
+        if response.status_code != 200:
+            print(f"[ERROR] Failed to get recommendations for {genre}")
+            print(f"Status code: {response.status_code}")
+            print(f"Response text: {response.text}")
+            return []
+
+        data = response.json()
+        tracks = data.get('tracks', {}).get('track', [])
+        recommendations = []
+        uris = []
+        for track in tracks:
+            name = track.get('name')
+            artist = track.get('artist', {}).get('name')
+            recommendations.append(f"{name} by {artist}")
+            query = f"{name} {artist}"
+
+            result = self.sp.search(q=query, type='track', limit=30)
+            print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
+            items = result['tracks']['items']
+            if items:
+                uri = items[0]['uri']
+                uris.append(uri)
+
+
+        playlist_name = f"{random_genre} songs on a {descrip} {tod}"
+
+        print(playlist_name)
+        for track in recommendations:
+            print(track)
+
+        return recommendations, uris
+
+    def weather_recs(self, OPEN_WEATHER_KEY, country_code="GB"):
+        print(f"[DEBUG] Starting weather recommendations")
+        city = "Wolverhampton"
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city},{country_code}&appid={OPEN_WEATHER_KEY}"
+        response = requests.get(url)
+
+        if response.status_code != 200:
+            print(f"[ERROR] Failed to get weather data. Status code {response.status_code}")
+            return [], []
+
+        data = response.json()
+        weather = data['weather'][0]['main'].lower()
+        detailed_weather = data['weather'][0]['description'].lower()
+        print(f"[DEBUG] The weather is {weather}")
+
+        genre_mapping = {
+        "thunderstorm": ['ambient', 'industrial', 'gothic', 'metal', 'alternative-rock'],
+        "drizzle": ['lo-fi', 'jazz', 'indie-pop', 'soul', 'ambient'],
+        "rain": ['blues', 'acoustic', 'classical', 'chillwave'],
+        "snow": ['classical', 'folk', 'dream-pop', 'ambient'],
+        "atmosphere": ['ambient', 'chillwave', 'synthwave', 'post-rock'],
+        "clear": ['pop', 'reggae', 'house', 'funk', 'indie-rock'],
+        "clouds": ['indie', 'soft-rock', 'jazz', 'dream-pop']
+        }
+
+        if detailed_weather == "tornado":
+            genre = ['hard-rock', 'heavy-metal', 'industrial', 'dubstep', 'drum-and-bass']
+        else:
+            #defualt genre pop if not found
+            genre = genre_mapping.get(weather, ['pop'])
+
+        print(f"[DEBUG] Selected genres: {genre}")
+        genre_string = ", ".join(genre)
+
+        url = 'http://ws.audioscrobbler.com/2.0/'
+        params = {
+            'method': 'tag.gettoptracks',
+            'api_key': self.last_fm_api_key,
+            'format' : 'json',
+        }
+
+        recommendations = []
+        uris = []
+        tracks_per_genre = 30 // len(genre)
+
+        for single_genre in genre:
+            print(f"[DEBUG] Fetching tracks for genre: {single_genre}")
+            params['tag'] = single_genre
+            params['limit'] = tracks_per_genre
+            response = requests.get(url, params=params)
+            if response.status_code != 200:
+                print(f"[ERROR] Failed to get tracks for genre {single_genre}")
+                continue
+
+            data = response.json()
+            tracks = data.get('tracks', {}).get('track', [])
+            if not tracks:
+                print(f"[ERROR] No tracks found for genre: {single_genre}")
+                continue
+
+            count = 0
+
+            for track in tracks:
+                if count >= tracks_per_genre:
+                    break
+
+                name = track.get('name')
+                artist = track.get('artist', {}).get('name')
+                if not name or not artist:
+                    print(f"[WARNING] Skipping track with missing name or artist.")
+                recommendations.append(f"{name} by {artist}")
+                query = f"{name} {artist}"
+                print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
+                result = self.sp.search(q=query, type='track', limit=5)
+                items = result.get('tracks', {}).get('items', [])
+                if items:
+                    uri = items[0]['uri']
+                    if uri not in uris:
+                        uris.append(uri)
+                        count += 1
+                        if count >= tracks_per_genre:
+                            break
+
+        playlist_name = f"Songs for {weather}"
+        recommendations = recommendations[:30]
+        random.shuffle(recommendations)
+        uris = uris[:30]
+        print(f"[DEBUG] Final recommendations: {recommendations}")
+        print(len(recommendations))
+
+        return recommendations, uris, playlist_name
+
+    def time_capsule(self):
+        short_term = self.sp.current_user_top_tracks(limit=15, time_range='short_term')
+        medium_term = self.sp.current_user_top_tracks(limit=15, time_range='medium_term')
+        long_term = self.sp.current_user_top_tracks(limit=15, time_range='long_term')
+        return short_term, medium_term, long_term
+
+    def genre_fusion_recs(self):
+        pass
+
+
+
+if __name__ == "__main__":
+    print("Current working directory:", os.getcwd())
+    load_dotenv(r'C:/Users/lucya/OneDrive - King Edward VI College, Stourbridge/Computer Science/NEA/.env')
+
     CLIENT_ID = os.getenv("CLIENT_ID")
+    print(f"[DEBUG] Client ID: {CLIENT_ID}")
     CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-    REDIRECT_URI = 'http://127.0.0.1:8888/callback'
-    SCOPE = "user-library-read user-top-read playlist-modify-public playlist-modify-private"
+    print(f"[DEBUG] Client secret: {CLIENT_SECRET}")
+    REDIRECT_URI = 'http://127.0.0.1:8080/callback'
+    SCOPE = "user-read-private user-library-read user-top-read playlist-modify-public playlist-modify-private"
     LAST_FM_KEY = os.getenv('LAST_FM_KEY')
     OPEN_WEATHER_KEY = os.getenv('OPEN_WEATHER_KEY')
 
+    #clearing cache
     if os.path.exists(".cache"):
         os.remove(".cache")
 
 
-    master = Tk()
+    master = tk.Tk()
     master.geometry("800x600")
     master.configure(background="white")
-
-    app = SpotifyApp(master, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE, LAST_FM_KEY, OPEN_WEATHER_KEY)
+    app = SpotifyApp(master, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE)
     master.mainloop()
 
-
-if __name__ == "__main__":
-    main()
