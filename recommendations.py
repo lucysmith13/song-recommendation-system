@@ -1,16 +1,16 @@
-import os
-
-import requests, spotipy, datetime, random
-from flask.cli import load_dotenv
+import spotipy, random, requests, datetime
+from dotenv import load_dotenv
 from datetime import date
 
-load_dotenv()
+load_dotenv(dotenv_path='.env')
+
 
 class Recommendations():
-    def __init__(self, access_token, last_fm_key):
+    def __init__(self, stats_obj, access_token, last_fm_key):
         self.sp = spotipy.Spotify(auth=access_token)
         self.access_token = access_token
         self.last_fm_api_key = last_fm_key
+        self.stats = stats_obj
 
     def add_to_playlist(self, playlist_name, track_uris):
         user_id = self.sp.current_user()['id']
@@ -38,7 +38,7 @@ class Recommendations():
         for artist_name in top_artist_names:
             print(f"[DEBUG] Getting similar artists for {artist_name}")
             url = "http://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist={}&api_key={}&format=json".format(
-                artist_name, LAST_FM_KEY)
+                artist_name, self.last_fm_api_key)
             try:
                 response = requests.get(url)
                 if response.status_code != 200:
@@ -97,6 +97,12 @@ class Recommendations():
             final_results_uris.append(track['uri'])
 
         print(f"[DEBUG] Final recommended tracks: {final_results}")
+        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
+        # if add_to_playlist_option.lower().startswith("y"):
+        #     # adds recs to playlist, does this work????
+        #     self.add_to_playlist("User Top Recs", final_results_uris)
+        # else:
+        #     pass
         return final_results, final_results_uris
 
     def last_fm_genres(self, genre,limit):
@@ -132,6 +138,12 @@ class Recommendations():
             if items:
                 uri = items[0]['uri']
                 uris.append(uri)
+
+        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
+        # if add_to_playlist_option.lower().startswith("y"):
+        #     self.add_to_playlist(f"{limit} {genre} songs", uris)
+        # else:
+        #     pass
         return recommendations, uris
 
     def album_chooser(self):
@@ -322,6 +334,3 @@ class Recommendations():
         medium_term = self.sp.current_user_top_tracks(limit=15, time_range='medium_term')
         long_term = self.sp.current_user_top_tracks(limit=15, time_range='long_term')
         return short_term, medium_term, long_term
-
-    def genre_fusion_recs(self):
-        pass
