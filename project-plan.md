@@ -32,6 +32,7 @@ I have created the basics of the UI using Tkinter, I made frames which switch wh
 Some other features I have made are a random album picker from the user's spotify library. The ability to add the recommended songs to the user's library, by addind playlists.
 There is also a small user stats page which I am going to develop.
 I have also created the user authorization which is the main pre-requesite for all my objectives, I completed this using multiple libraries to make it as efficient as possible: spotipy, flask, webbrowser etc.
+I have split my code into multiple files to make my worflow simpler. I have used OOP so far, which i hope to extend since it keeps my code organsied.
 
 #### Targets
 
