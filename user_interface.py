@@ -13,7 +13,7 @@ from spotipy import SpotifyOAuth
 load_dotenv()
 
 class SpotifyApp():
-    def __init__(self, master, client_id, client_secret, redirect_uri, scope, last_fm_key):
+    def __init__(self, master, client_id, client_secret, redirect_uri, scope, last_fm_key, open_weather_key):
         self.master = master
         self.client_id = client_id
         self.spotify_auth = SpotifyAuth(self.client_id, client_secret, redirect_uri, scope)
@@ -23,6 +23,8 @@ class SpotifyApp():
         self.user_name = "User"
         self.recs = None
         self.last_fm_key = last_fm_key
+        self.OPEN_WEATHER_KEY = open_weather_key
+
 
         self.master.title("Song recommendation system")
 
@@ -164,7 +166,7 @@ class SpotifyApp():
         self.back_button6.place(x=0, y=0)
         self.weather_recs_label = tk.Label(self.weather_recs_frame, text="Weather Recommendations", font=("",16, "bold"), background="white")
         self.weather_recs_label.pack(pady=20)
-        self.weather_recs_name = tk.Label(self.weather_recs_frame, text="[PLAYLIST NAME HERE]", font=("", 14, "bold"), background="white")
+        self.weather_recs_name = tk.Label(self.weather_recs_frame, text="playlist_name", font=("", 14, "bold"), background="white")
         self.weather_recs_name.pack(pady=20)
         self.weather_recs_listbox = tk.Listbox(self.weather_recs_frame, width=70, height=15)
         self.weather_recs_listbox.pack(pady=20)
@@ -266,37 +268,6 @@ class SpotifyApp():
         wait_for_auth()
 
 
-
-    def add_to_playlist(self):
-        playlist_name1 = self.playlist_name_option.get().strip()
-        playlist_name2 = self.playlist_name_option2.get().strip()
-
-        if not playlist_name1 or not playlist_name2:
-            messagebox.showerror("Error", "Please enter a playlist name.")
-            return
-
-        playlist_name = playlist_name1 if playlist_name1 else playlist_name2
-
-        sp = spotipy.Spotify(auth=self.access_token)
-        user_id = sp.current_user()['id']
-
-        playlist = sp.user_playlist_create(
-            user = user_id,
-            name = playlist_name,
-            public = True,
-            description = "Created by Lucy's Song recommendation system"
-        )
-
-        print(f"[DEBUG] Created playlist: {playlist['name']}")
-
-        for i in range(0, len(self.current_track_uris), 100):
-            chunk = self.current_track_uris[i:i+100]
-            sp.playlist_add_items(playlist_id=playlist['id'], items=chunk)
-
-        print(f"[DEBUG] Added tracks to playlist successfully")
-
-        messagebox.showinfo(title="Playlist Creation", message=f"{playlist['name']} created successfully")
-
     def generate_genre_recommendations(self):
         if not self.recs:
             messagebox.showerror("Error", "Recs not loaded, please authorize first.")
@@ -342,9 +313,13 @@ class SpotifyApp():
         except AttributeError:
             print("[ERROR] No recommendations object has been created.")
             messagebox.showerror("Error", "Recommendations not loaded. Please authorize again.")
+
+
     def generate_weather_recs(self):
-        recommendations, uris, playlist_name = self.recs.weather_recs(OPEN_WEATHER_KEY)
+        recommendations, uris, weather_playlist_name, genre_string = self.recs.weather_recs(self.OPEN_WEATHER_KEY)
         self.current_track_uris = uris
+        self.weather_playlist_name = weather_playlist_name
+        self.genres = genre_string
 
         self.weather_recs_listbox.delete(0, tk.END)
         self.results_listbox2.config(yscrollcommand = self.scrollbar3.set)
@@ -356,6 +331,53 @@ class SpotifyApp():
         self.add_to_playlist_button.config(state=tk.NORMAL)
         self.add_to_playlist_button2.config(state=tk.NORMAL)
         self.add_to_playlist_button3.config(state=tk.NORMAL)
+        self.weather_recs_name.config(text=weather_playlist_name)
+
+        return weather_playlist_name, genre_string
+
+    def add_to_playlist(self):
+        playlist_name1 = self.playlist_name_option.get().strip()
+        playlist_name2 = self.playlist_name_option2.get().strip()
+        playlist_name3 = self.weather_playlist_name
+
+        if playlist_name1:
+            playlist_name = playlist_name1
+        elif playlist_name2:
+            playlist_name = playlist_name2
+        elif playlist_name3:
+            playlist_name = playlist_name3
+        else:
+            messagebox.showerror("Error", "Please enter a playlist name.")
+            return
+
+        sp = spotipy.Spotify(auth=self.access_token)
+        user_id = sp.current_user()['id']
+
+        if playlist_name == playlist_name3:
+            playlist = sp.user_playlist_create(
+                user=user_id,
+                name=playlist_name,
+                public=True,
+                description=self.genres
+            )
+            tk.Label(self.weather_recs_frame, text=self.genres).place()
+        else:
+            playlist = sp.user_playlist_create(
+                user=user_id,
+                name=playlist_name,
+                public=True,
+                description="Created by Lucy's Song recommendation system"
+            )
+
+        print(f"[DEBUG] Created playlist: {playlist['name']}")
+
+        for i in range(0, len(self.current_track_uris), 100):
+            chunk = self.current_track_uris[i:i + 100]
+            sp.playlist_add_items(playlist_id=playlist['id'], items=chunk)
+
+        print(f"[DEBUG] Added tracks to playlist successfully")
+
+        messagebox.showinfo(title="Playlist Creation", message=f"{playlist['name']} created successfully")
 
     def stats_button_clicked(self):
         if self.stats is None:
@@ -404,7 +426,7 @@ class SpotifyApp():
         label.place(x=270, y=100)
 
         img_data = requests.get(image_url).content
-        img = Image.open(BytesIO(img_data)).resize((300,300))
+        img = Image.open(bytes(img_data)).resize((300,300))
         photo = ImageTk.PhotoImage(img)
 
         image_label = tk.Label(self.albums_frame, image=photo, bg="white")
@@ -428,6 +450,7 @@ class SpotifyApp():
         self.all_time_stats_label.place(x=550, y=150, width=250, height=450)
 
     def show_recs_frame(self):
+        self.weather_recs_frame.place_forget()
         self.genre_recs_frame.place_forget()
         self.albums_frame.place_forget()
         self.user_recs_frame.place_forget()

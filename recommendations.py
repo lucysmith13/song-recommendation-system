@@ -326,8 +326,9 @@ class Recommendations():
         uris = uris[:30]
         print(f"[DEBUG] Final recommendations: {recommendations}")
         print(len(recommendations))
+        genre_string = ", ".join(genre)
 
-        return recommendations, uris, playlist_name
+        return recommendations, uris, playlist_name, genre_string
 
     def time_capsule(self):
         short_term = self.sp.current_user_top_tracks(limit=15, time_range='short_term')
