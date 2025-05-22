@@ -6,7 +6,7 @@ from flask import request
 from flask import Flask
 from dotenv import load_dotenv
 from tkinter import messagebox
-from PIL import Image, ImageTk
+#from PIL import Image, ImageTk
 from spotipy import SpotifyOAuth
 import base64
 
@@ -118,10 +118,12 @@ class SpotifyApp():
             self.back_button3.place(x=0, y=0)
 
             tk.Label(self.genre_recs_frame, text="Number of Tracks:").pack()
-            self.num_tracks_entry = tk.Entry(self.genre_recs_frame)
+            self.num_tracks_var = tk.StringVar()
+            self.num_tracks_entry = tk.Entry(self.genre_recs_frame, textvariable=self.num_tracks_var)
             self.num_tracks_entry.pack()
             tk.Label(self.genre_recs_frame, text="Genre:").pack()
-            self.genre_entry = tk.Entry(self.genre_recs_frame)
+            self.genre_var = tk.StringVar()
+            self.genre_entry = tk.Entry(self.genre_recs_frame, textvariable=self.genre_var)
             self.genre_entry.pack()
             generate_recommendations_button = tk.Button(self.genre_recs_frame, text="Generate Recommendations")
             generate_recommendations_button['command'] = self.generate_genre_recommendations
@@ -129,11 +131,16 @@ class SpotifyApp():
             self.results_listbox = tk.Listbox(self.genre_recs_frame, width=70, height=15)
             self.results_listbox.pack(pady=20)
             tk.Label(self.genre_recs_frame, text="Playlist Name:").pack()
-            self.playlist_name_option2 = tk.Entry(self.genre_recs_frame)
+            self.playlist_name_option2_var = tk.StringVar()
+            self.playlist_name_option2 = tk.Entry(self.genre_recs_frame, textvariable=self.playlist_name_option2_var)
             self.playlist_name_option2.pack()
             self.add_to_playlist_button = tk.Button(self.genre_recs_frame, text="Add to Playlist", state="disabled")
             self.add_to_playlist_button['command'] = self.add_to_playlist
             self.add_to_playlist_button.pack(pady=10)
+            self.clear_button = tk.Button(self.genre_recs_frame, text="Clear")
+            self.clear_button['command'] = self.clear_genre_recs_widgets
+            self.clear_button.place(x=750, y=0)
+
 
             tk.Label(self.user_recs_frame, text="Time-Range:").pack()
             self.time_range_options = ["short_term", "medium_term", "long_term"]
@@ -338,7 +345,7 @@ class SpotifyApp():
         def add_to_playlist(self):
             playlist_name1 = self.playlist_name_option.get().strip()
             playlist_name2 = self.playlist_name_option2.get().strip()
-            playlist_name3 = self.weather_playlist_name
+            #playlist_name3 = self.weather_playlist_name
 
             if playlist_name1:
                 playlist_name = playlist_name1
@@ -353,22 +360,22 @@ class SpotifyApp():
             sp = spotipy.Spotify(auth=self.access_token)
             user_id = sp.current_user()['id']
 
-            if playlist_name == playlist_name3: #WEATHER REC EXTRAS
-                playlist = sp.user_playlist_create(
-                    user=user_id,
-                    name=playlist_name,
-                    public=True,
-                    description=self.genres
-                )
-                tk.Label(self.weather_recs_frame, text=self.genres).place()
-                self.update_playlist_cover()
-            else:
-                playlist = sp.user_playlist_create(
-                    user=user_id,
-                    name=playlist_name,
-                    public=True,
-                    description="Created by Lucy's Song recommendation system"
-                )
+            # if playlist_name == playlist_name3: #WEATHER REC EXTRAS
+            #     playlist = sp.user_playlist_create(
+            #         user=user_id,
+            #         name=playlist_name,
+            #         public=True,
+            #         description=self.genres
+            #     )
+            #     tk.Label(self.weather_recs_frame, text=self.genres).place()
+            #     self.update_playlist_cover()
+            # else:
+            playlist = sp.user_playlist_create(
+                user=user_id,
+                name=playlist_name,
+                public=True,
+                description="Created by Lucy's Song recommendation system"
+            )
 
             print(f"[DEBUG] Created playlist: {playlist['name']}")
 
@@ -380,22 +387,28 @@ class SpotifyApp():
 
             messagebox.showinfo(title="Playlist Creation", message=f"{playlist['name']} created successfully")
 
-        def update_playlist_cover(self, playlist_id, image_path, access_token):
-            with open(image_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+        # def update_playlist_cover(self, playlist_id, image_path, access_token):
+        #     with open(image_path, "rb") as image_file:
+        #         encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+        #
+        #     headers = {
+        #         "Authorization": f"Basic {encoded_string}",
+        #         "Content-Type" "image/jpeg":
+        #     }
+        #
+        #     url = f"https://api.spotify.com/v1/playlists/{playlist_id}/images"
+        #     response = requests.put(url, headers=headers, data=encoded_string)
+        #
+        #     if response.status_code == 202:
+        #         messagebox.showinfo("Cover Image", "Playlist image updated successfully.")
+        #     else:
+        #         print(f"[ERROR] Failed to update playlist cover image: {response.status_code} - {response.text}")
 
-            headers = {
-                "Authorization": f"Basic {encoded_string}",
-                "Content-Type" "image/jpeg"
-            }
-
-            url = f"https://api.spotify.com/v1/playlists/{playlist_id}/images"
-            response = requests.put(url, headers=headers, data=encoded_string)
-
-            if response.status_code == 202:
-                messagebox.showinfo("Cover Image", "Playlist image updated successfully.")
-            else:
-                print(f"[ERROR] Failed to update playlist cover image: {response.status_code} - {response.text}")
+        def clear_genre_recs_widgets(self):
+            self.results_listbox.delete(0, tk.END)
+            self.num_tracks_var.set("")
+            self.genre_var.set("")
+            self.playlist_name_option2_var.set("")
 
         def stats_button_clicked(self):
             if self.stats is None:
