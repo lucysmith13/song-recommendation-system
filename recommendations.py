@@ -105,46 +105,113 @@ class Recommendations():
         #     pass
         return final_results, final_results_uris
 
-    def last_fm_genres(self, genre,limit):
+    def last_fm_genres(self, genre, limit):
         url = 'http://ws.audioscrobbler.com/2.0/'
         params = {
-            'method': 'tag.gettoptracks',
+            'method': 'tag.getTopArtists',
             'tag': genre,
             'api_key': self.last_fm_api_key,
             'format' : 'json',
             'limit': limit
         }
-        response = requests.get(url, params=params)
 
-        if response.status_code != 200:
-            print(f"[ERROR] Failed to get recommendations for {genre}")
-            print(f"Status code: {response.status_code}")
-            print(f"Response text: {response.text}")
-            return []
+        print("[DEBUG] Calling Last.fm API for top artists...")
+        top_artists_response = requests.get(url, params=params)
 
-        data = response.json()
-        tracks = data.get('tracks', {}).get('track', [])
-        recommendations = []
+        print(f"[DEBUG] Full request URL: {top_artists_response.url}")
+        print(f"[DEBUG] Status code: {top_artists_response.status_code}")
+        print(f"[DEBUG] Response text: {top_artists_response.text}")
+
+        if top_artists_response.status_code != 200:
+            print(f"[ERROR] Failed to get top artists for {genre}")
+            return [], []
+
+        try:
+            artists_data = top_artists_response.json()
+            artist_objs = artists_data.get('topartists', {}).get('artist', [])
+            artists = [a['name'] for a in artist_objs if 'name' in a]
+        except Exception as e:
+            print(f"[ERROR] Parsing artist response failed: {e}")
+            return [], []
+
+        print(f"[DEBUG] Artists: {artists}")
+
+        top_tracks = []
         uris = []
-        for track in tracks:
-            name = track.get('name')
-            artist = track.get('artist', {}).get('name')
-            recommendations.append(f"{name} by {artist}")
-            query = f"{name} {artist}"
 
-            result = self.sp.search(q=query, type='track', limit=limit)
-            print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
-            items = result['tracks']['items']
-            if items:
-                uri = items[0]['uri']
-                uris.append(uri)
+        for artist_name in artists:
+            print(f"[DEBUG] Getting top track for {artist_name}")
 
-        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
-        # if add_to_playlist_option.lower().startswith("y"):
-        #     self.add_to_playlist(f"{limit} {genre} songs", uris)
-        # else:
-        #     pass
-        return recommendations, uris
+            track_params = {
+                'method': 'artist.getTopTracks',
+                'artist': artist_name,
+                'api_key': self.last_fm_api_key,
+                'format': 'json',
+                'limit': 1
+            }
+
+            try:
+                track_response = requests.get(url, params=track_params)
+                if track_response.status_code != 200:
+                    print(f"[ERROR] Failed to get top track for {artist_name}")
+                    continue
+
+                track_data = track_response.json()
+                tracks = track_data.get('toptracks', {}).get('track', [])
+
+                if tracks:
+                    top_track = tracks[0] if isinstance(tracks, list) else tracks
+                    track_name = top_track.get('name')
+                    if track_name:
+                        top_tracks.append(f"{track_name} by {artist_name}")
+                        query = f"{track_name} {artist_name}"
+
+                        result = self.sp.search(q=query, type='track', limit=1)
+                        print(f"[DEBUG] Searching for track on spotify {track_name} by {artist_name}")
+                        items = result['tracks']['items']
+                        if items:
+                            uri = items[0]['uri']
+                            uris.append(uri)
+            except Exception as e:
+                print(f"[ERROR] Exception while processing {artist_name}: {e}")
+                continue
+
+            if len(top_tracks) >= limit:
+                break
+
+        return top_tracks, uris
+
+        # response = requests.get(url, params=params)
+        #
+        # if response.status_code != 200:
+        #     print(f"[ERROR] Failed to get recommendations for {genre}")
+        #     print(f"Status code: {response.status_code}")
+        #     print(f"Response text: {response.text}")
+        #     return []
+        #
+        # # data = response.json()
+        # # tracks = data.get('tracks', {}).get('track', [])
+        # # recommendations = []
+        # # uris = []
+        # # for track in tracks:
+        # #     name = track.get('name')
+        # #     artist = track.get('artist', {}).get('name')
+        # #     recommendations.append(f"{name} by {artist}")
+        # #     query = f"{name} {artist}"
+        # #
+        # #     result = self.sp.search(q=query, type='track', limit=limit)
+        # #     print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
+        # #     items = result['tracks']['items']
+        # #     if items:
+        # #         uri = items[0]['uri']
+        # #         uris.append(uri)
+        # #
+        # # # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
+        # # # if add_to_playlist_option.lower().startswith("y"):
+        # # #     self.add_to_playlist(f"{limit} {genre} songs", uris)
+        # # # else:
+        # # #     pass
+        # # return recommendations, uris
 
     def album_chooser(self):
         saved_albums = self.sp.current_user_saved_albums(limit=50)

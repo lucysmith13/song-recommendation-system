@@ -284,6 +284,9 @@ class SpotifyApp():
             genre = self.genre_entry.get().strip().lower()
             limit = int(self.num_tracks_entry.get())
             recommendations, uris = self.recs.last_fm_genres(genre, limit)
+            print(f"[DEBUG] Recommendations returned: {recommendations}")
+            print(f"[DEBUG] URIs returned: {uris}")
+
             self.current_track_uris = uris
 
             self.results_listbox.delete(0, tk.END)
@@ -386,23 +389,6 @@ class SpotifyApp():
             print(f"[DEBUG] Added tracks to playlist successfully")
 
             messagebox.showinfo(title="Playlist Creation", message=f"{playlist['name']} created successfully")
-
-        # def update_playlist_cover(self, playlist_id, image_path, access_token):
-        #     with open(image_path, "rb") as image_file:
-        #         encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-        #
-        #     headers = {
-        #         "Authorization": f"Basic {encoded_string}",
-        #         "Content-Type" "image/jpeg":
-        #     }
-        #
-        #     url = f"https://api.spotify.com/v1/playlists/{playlist_id}/images"
-        #     response = requests.put(url, headers=headers, data=encoded_string)
-        #
-        #     if response.status_code == 202:
-        #         messagebox.showinfo("Cover Image", "Playlist image updated successfully.")
-        #     else:
-        #         print(f"[ERROR] Failed to update playlist cover image: {response.status_code} - {response.text}")
 
         def clear_genre_recs_widgets(self):
             self.results_listbox.delete(0, tk.END)
