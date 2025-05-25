@@ -148,7 +148,8 @@ class SpotifyApp():
             self.time_range_dropdown = tk.OptionMenu(self.user_recs_frame, self.selected_time_range_option, *self.time_range_options)
             self.time_range_dropdown.pack()
             tk.Label(self.user_recs_frame, text="Number of tracks").pack()
-            self.num_tracks = tk.Entry(self.user_recs_frame)
+            self.num_tracks_var2 = tk.StringVar()
+            self.num_tracks = tk.Entry(self.user_recs_frame, textvariable=self.num_tracks_var2)
             self.num_tracks.pack()
             generate_user_recs_button = tk.Button(self.user_recs_frame, text="Generate Recommendations")
             generate_user_recs_button['command'] = self.generate_user_recs
@@ -163,6 +164,9 @@ class SpotifyApp():
             self.add_to_playlist_button2 = tk.Button(self.user_recs_frame, text="Add to Playlist", state="disabled")
             self.add_to_playlist_button2.pack(pady=10)
             self.add_to_playlist_button2['command'] = self.add_to_playlist
+            self.clear_button2 = tk.Button(self.user_recs_frame, text="Clear")
+            self.clear_button2['command'] = self.clear_user_recs_widgets
+            self.clear_button2.place(x=750, y=0)
 
             self.weather_recs_button = tk.Button(self.recs_frame, text="Weather\nRecommendations", background="green")
             self.weather_recs_button['command'] = self.show_weather_recs_frame
@@ -395,6 +399,12 @@ class SpotifyApp():
             self.num_tracks_var.set("")
             self.genre_var.set("")
             self.playlist_name_option2_var.set("")
+
+        def clear_user_recs_widgets(self):
+            self.results_listbox2.delete(0, tk.END)
+            self.num_tracks_var2.set("")
+            self.selected_time_range_option.set("")
+
 
         def stats_button_clicked(self):
             if self.stats is None:
