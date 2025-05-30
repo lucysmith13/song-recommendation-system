@@ -1,16 +1,16 @@
 import spotipy, random, requests, datetime
 from dotenv import load_dotenv
 from datetime import date
+from collections import defaultdict
 
 load_dotenv(dotenv_path='.env')
 
 
 class Recommendations():
-    def __init__(self, stats_obj, access_token, last_fm_key):
+    def __init__(self,access_token, last_fm_key):
         self.sp = spotipy.Spotify(auth=access_token)
         self.access_token = access_token
         self.last_fm_api_key = last_fm_key
-        self.stats = stats_obj
 
     def add_to_playlist(self, playlist_name, track_uris):
         user_id = self.sp.current_user()['id']
@@ -34,40 +34,46 @@ class Recommendations():
         top_artist_names = [artist['name'] for artist in top_artists['items']]
         print(f"[DEBUG] Top artists: {top_artist_names}")
 
-        similar_artists = set()
-        for artist_name in top_artist_names:
-            print(f"[DEBUG] Getting similar artists for {artist_name}")
-            url = "http://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist={}&api_key={}&format=json".format(
-                artist_name, self.last_fm_api_key)
-            try:
-                response = requests.get(url)
-                if response.status_code != 200:
-                    print(f"[ERROR] Failed to get similar artists for {artist_name}, Status code: {response.status_code}")
-                    continue
+        weighted_similar_artists = defaultdict(int)
+        artist_to_similars = {}
 
+        for rank, top_artist in enumerate(top_artist_names):
+            weight = top_artist_limit - rank #higher rank = more weight
+            url = f"http://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist={top_artist}&api_key={self.last_fm_api_key}&format=json"
+            response = requests.get(url)
+            if response.status_code == 200:
                 data = response.json()
-                print(f"[DEBUG] Raw similar data: {data}")
+                similars = data.get("similarartists", {}).get("artist", [])
+                sim_names = [sim['name'] for sim in similars]
+                artist_to_similars[top_artist] = sim_names
+                for name in sim_names:
+                    weighted_similar_artists[name] += weight
+            else:
+                print(f"[WARNING] Failed to get simialr artists for {top_artist}")
 
-                similar = data.get("similarartists", {}).get("artist", [])
-                if similar:
-                    for artist in similar[:int(similar_artist_limit)]:
-                        similar_artists.add(artist["name"])
-                else:
-                    print("f[WARNING] No similar artists found for {artist_name}")
-            except Exception as e:
-                print(f"[ERROR] Exception while processing {artist_name}: {e}")
+        sorted_similars = sorted(weighted_similar_artists.items(), key=lambda x: x[1], reverse=True)
+        similar_artists = [name for name, _ in sorted_similars]
 
-        print(f"[DEBUG] Found similar artists: {list(similar_artists)}")
+        must_include_artists = set()
+        for sim_list in artist_to_similars.values():
+            if sim_list:
+                must_include_artists.add(sim_list[0])
 
-        total_artists = len(similar_artists)
-        if total_artists == 0:
-            print("[ERROR] No similar artists found. Cannot proceed with recommendations.")
-            return [], []
+        final_similar_artists = list(must_include_artists)
+        for artist in similar_artists:
+            if artist not in final_similar_artists:
+                final_similar_artists.append(artist)
+            if len(final_similar_artists) >= top_artist_limit * 2:
+                break
 
-        tracks_per_artist = max(total_tracks_limit // total_artists, 1)
+        print(f"[DEBUG] Final similar artists: {final_similar_artists}")
+
 
         recommended_tracks = []
-        for artist_name in similar_artists:
+        seen_track_uris = set()
+        tracks_per_artist = max(total_tracks_limit // len(final_similar_artists), 1)
+
+        for artist_name in final_similar_artists:
             print(f"[DEBUG] Searching for artist on Spotify {artist_name}")
             search_results = self.sp.search(q=artist_name, type='artist', limit=1)
             print(f"[DEBUG] Spotify search result FOR {artist_name}: {search_results}")
@@ -79,10 +85,12 @@ class Recommendations():
                 top_tracks = self.sp.artist_top_tracks(artist_id)['tracks']
                 print(f"[DEBUG] Top tracks for {artist_name}: {top_tracks}")
 
-                if top_tracks:
-                    recommended_tracks.extend(top_tracks[:tracks_per_artist])
-                else:
-                    print(f"[WARNING] No top tracks found for artist: {artist_name}")
+                selected = 0
+                for track in top_tracks:
+                    if track['uri'] not in seen_track_uris and selected < tracks_per_artist:
+                        recommended_tracks.append(track)
+                        seen_track_uris.add(track['uri'])
+                        selected += 1
             else:
                 print(f"[ERROR] No artist found for search query {artist_name}")
 
@@ -97,49 +105,87 @@ class Recommendations():
             final_results_uris.append(track['uri'])
 
         print(f"[DEBUG] Final recommended tracks: {final_results}")
-        # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
-        # if add_to_playlist_option.lower().startswith("y"):
-        #     # adds recs to playlist, does this work????
-        #     self.add_to_playlist("User Top Recs", final_results_uris)
-        # else:
-        #     pass
         return final_results, final_results_uris
 
     def last_fm_genres(self, genre, limit):
-        url = 'http://ws.audioscrobbler.com/2.0/'
-        params = {
-            'method': 'tag.getTopArtists',
-            'tag': genre,
-            'api_key': self.last_fm_api_key,
-            'format' : 'json',
-            'limit': limit
-        }
+        def get_similar_genres(main_genre):
+            url = 'http://ws.audioscrobbler.com/2.0/'
+            params = {
+                'method': 'tag.getSimilar',
+                'tag': main_genre,
+                'api_key': self.last_fm_api_key,
+                'format': 'json'
+            }
 
-        print("[DEBUG] Calling Last.fm API for top artists...")
-        top_artists_response = requests.get(url, params=params)
+            try:
+                response = requests.get(url, params=params)
+                if response.status_code == 200:
+                    data = response.json()
+                    similar = data.get('similartags', {}).get("tag", [])
+                    if similar:
+                        return [tag['name'] for tag in similar]
+            except Exception as e:
+                print(f"[ERROR] Exception while getting last fm genres: {e}")
 
-        print(f"[DEBUG] Full request URL: {top_artists_response.url}")
-        print(f"[DEBUG] Status code: {top_artists_response.status_code}")
-        print(f"[DEBUG] Response text: {top_artists_response.text}")
+            fallback_similar = {
+                "metal": ["heavy metal", "death metal", "nu metal"],
+                "pop": ["dance", "electropop", "dreampop"],
+                "rock": ["alternative", "classic rock"],
+                "hip hop": ["rap", "trap"],
+                "electronic": ["house", "techno", "edm"]
+            }
+            print(f"[DEBUG] Using fallback for genre {main_genre}")
+            return fallback_similar.get(main_genre.lower(), [])
 
-        if top_artists_response.status_code != 200:
-            print(f"[ERROR] Failed to get top artists for {genre}")
-            return [], []
 
-        try:
-            artists_data = top_artists_response.json()
-            artist_objs = artists_data.get('topartists', {}).get('artist', [])
-            artists = [a['name'] for a in artist_objs if 'name' in a]
-        except Exception as e:
-            print(f"[ERROR] Parsing artist response failed: {e}")
-            return [], []
-
-        print(f"[DEBUG] Artists: {artists}")
+        similar_genres = get_similar_genres(genre)[:2]
+        print(f"[DEBUG] Similar genres to '{genre}': {similar_genres}")
+        genres = [genre] + similar_genres
+        print(f"[DEBUG] Genres: {genres}")
 
         top_tracks = []
         uris = []
+        seen_tracks = set()
+        seen_artists = set()
+        all_artists = []
+        url = 'http://ws.audioscrobbler.com/2.0/'
 
-        for artist_name in artists:
+        for genre in genres:
+            params = {
+                'method': 'tag.getTopArtists',
+                'tag': genre,
+                'api_key': self.last_fm_api_key,
+                'format' : 'json',
+                'limit': limit
+            }
+
+            print("[DEBUG] Calling Last.fm API for top artists...")
+            top_artists_response = requests.get(url, params=params)
+
+            print(f"[DEBUG] Full request URL: {top_artists_response.url}")
+            print(f"[DEBUG] Status code: {top_artists_response.status_code}")
+            print(f"[DEBUG] Response text: {top_artists_response.text}")
+
+            if top_artists_response.status_code != 200:
+                print(f"[ERROR] Failed to get top artists for {genre}")
+                return [], []
+
+            try:
+                artists_data = top_artists_response.json()
+                artist_objs = artists_data.get('topartists', {}).get('artist', [])
+                for a in artist_objs:
+                    name = a.get('name')
+                    if name and name not in seen_artists:
+                        all_artists.append(name)
+                        seen_artists.add(name)
+            except Exception as e:
+                print(f"[ERROR] Parsing artist response failed: {e}")
+                continue
+
+            print(f"[DEBUG] Total unique artists: {len(all_artists)}")
+
+        random.shuffle(all_artists)
+        for artist_name in all_artists:
             print(f"[DEBUG] Getting top track for {artist_name}")
 
             track_params = {
@@ -147,7 +193,7 @@ class Recommendations():
                 'artist': artist_name,
                 'api_key': self.last_fm_api_key,
                 'format': 'json',
-                'limit': 1
+                'limit': 5
             }
 
             try:
@@ -158,60 +204,39 @@ class Recommendations():
 
                 track_data = track_response.json()
                 tracks = track_data.get('toptracks', {}).get('track', [])
+                if isinstance(tracks, dict):
+                    tracks = [tracks]
 
                 if tracks:
-                    top_track = tracks[0] if isinstance(tracks, list) else tracks
-                    track_name = top_track.get('name')
-                    if track_name:
-                        top_tracks.append(f"{track_name} by {artist_name}")
-                        query = f"{track_name} {artist_name}"
+                    chosen_track = random.choice(tracks)
+                    track_name = chosen_track.get('name')
+                    if not track_name:
+                        continue
 
-                        result = self.sp.search(q=query, type='track', limit=1)
-                        print(f"[DEBUG] Searching for track on spotify {track_name} by {artist_name}")
-                        items = result['tracks']['items']
-                        if items:
-                            uri = items[0]['uri']
-                            uris.append(uri)
+                    track_id = f"{track_name.lower()} by {artist_name.lower()}"
+                    if track_id in seen_tracks:
+                        continue
+
+                    seen_tracks.add(track_id)
+                    top_tracks.append(f"{track_name} by {artist_name}")
+
+                    query = f"{track_name} {artist_name}"
+                    print(f"[DEBUG] Query: {query}")
+                    result = self.sp.search(q=query, type='track', limit=5)
+                    items = result['tracks']['items']
+                    if items:
+                        items.sort(key=lambda x: x['popularity'], reverse=True)
+                        uri = items[0]['uri']
+                        uris.append(uri)
+
             except Exception as e:
-                print(f"[ERROR] Exception while processing {artist_name}: {e}")
+                print(f"[ERROR] Exception while getting top tracks for {artist_name}")
                 continue
 
             if len(top_tracks) >= limit:
-                break
+                return top_tracks[:limit], uris[:limit]
 
-        return top_tracks, uris
-
-        # response = requests.get(url, params=params)
-        #
-        # if response.status_code != 200:
-        #     print(f"[ERROR] Failed to get recommendations for {genre}")
-        #     print(f"Status code: {response.status_code}")
-        #     print(f"Response text: {response.text}")
-        #     return []
-        #
-        # # data = response.json()
-        # # tracks = data.get('tracks', {}).get('track', [])
-        # # recommendations = []
-        # # uris = []
-        # # for track in tracks:
-        # #     name = track.get('name')
-        # #     artist = track.get('artist', {}).get('name')
-        # #     recommendations.append(f"{name} by {artist}")
-        # #     query = f"{name} {artist}"
-        # #
-        # #     result = self.sp.search(q=query, type='track', limit=limit)
-        # #     print(f"[DEBUG] Searching for track on spotify: {name} by {artist}")
-        # #     items = result['tracks']['items']
-        # #     if items:
-        # #         uri = items[0]['uri']
-        # #         uris.append(uri)
-        # #
-        # # # add_to_playlist_option = input("Would you like to add the results to a playlist? ")
-        # # # if add_to_playlist_option.lower().startswith("y"):
-        # # #     self.add_to_playlist(f"{limit} {genre} songs", uris)
-        # # # else:
-        # # #     pass
-        # # return recommendations, uris
+        return top_tracks[:limit], uris[:limit]
 
     def album_chooser(self):
         saved_albums = self.sp.current_user_saved_albums(limit=50)
@@ -222,7 +247,7 @@ class Recommendations():
         return chosen
 
     def seasonal_recs(self):
-        hour = datetime.now().hour
+        hour = datetime.datetime.now().hour
         if 5 <= hour < 12:
             tod = "morning"
         elif 12 <= hour < 18:
@@ -232,7 +257,7 @@ class Recommendations():
         else:
             tod = "night"
 
-        month = datetime.now().month
+        month = datetime.datetime.now().month
         today = date.today()
 
         if 3 <= month <= 5:
@@ -302,7 +327,7 @@ class Recommendations():
         for track in recommendations:
             print(track)
 
-        return recommendations, uris
+        return recommendations, uris, playlist_name
 
     def weather_recs(self, OPEN_WEATHER_KEY, country_code="GB"):
         print(f"[DEBUG] Starting weather recommendations")

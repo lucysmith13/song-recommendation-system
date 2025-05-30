@@ -1,6 +1,5 @@
 from NEA.recommendations import Recommendations
 from NEA.spotify_auth import SpotifyAuth
-from other_utils import Stats
 import threading, requests, time, spotipy, tkinter as tk, flask, webbrowser
 from flask import request
 from flask import Flask
@@ -19,7 +18,6 @@ class SpotifyApp():
             self.spotify_auth = SpotifyAuth(self.client_id, client_secret, redirect_uri, scope)
             self.token_received = threading.Event()
             self.access_token = None
-            self.stats = None
             self.user_name = "User"
             self.recs = None
             self.last_fm_key = last_fm_key
@@ -28,32 +26,18 @@ class SpotifyApp():
 
             self.master.title("Song recommendation system")
 
+            self.recs_frame = tk.Frame(self.master, bg="white")
+            self.recs_frame.place(relwidth=1, relheight=1)
+
             self.authorize_button = tk.Button(self.master, text="Authorize with Spotify", command=self.authorize, font=("",10), background="red")
-            self.authorize_button.pack(pady=20)
             self.authorize_button.place(x=0, y=0)
 
             self.welcome_label = tk.Label(self.master, text=f"Welcome {self.user_name}!", font=("",16, "bold"), background="white")
             self.welcome_label.place(x=300, y=75)
 
-            self.stats_button = tk.Button(self.master, text=f"{self.user_name}'s Spotify\nStatistics:", background="darkgray", borderwidth=5)
-            self.stats_button['command'] = self.stats_button_clicked
-            self.stats_button.place(x=100, y=150, width="200", height="200")
-
             self.recs_button = tk.Button(self.master, text="Song\nRecommendations: ", background="darkgray", borderwidth=5)
             self.recs_button['command'] = self.recs_button_clicked
             self.recs_button.place(x=450, y=150, width="200", height="200")
-
-            self.stats_frame = tk.Frame(self.master, bg="white")
-            self.stats_frame.place(relwidth=1, relheight=1)
-
-            self.stats_label = tk.Label(self.stats_frame, text=f"{self.user_name}'s Spotify Stats: ", font=("",16, "bold"), background="white")
-            self.stats_label.pack(pady=20)
-
-            self.back_button1 = tk.Button(self.stats_frame, text="Back", command=self.show_main_frame, background="white")
-            self.back_button1.place(x=0,y=0)
-
-            self.recs_frame = tk.Frame(self.master, bg="white")
-            self.recs_frame.place(relwidth=1, relheight=1)
 
             self.recs_label = tk.Label(self.recs_frame, text=f"{self.user_name}'s recommendations:", font=("",16, "bold"), background="white")
             self.recs_label.pack(pady=20)
@@ -67,12 +51,8 @@ class SpotifyApp():
             self.setup_routes()
             threading.Thread(target=self.run_flask, daemon=True).start()
 
-            self.stats_frame.place_forget()
             self.recs_frame.place_forget()
             self.show_main_frame()
-
-            self.all_time_stats_label = tk.Label(self.stats_frame, text="All time stats: ", font=("",14, "bold"), background="darkgray", bd=5, anchor="n")
-            self.all_time_stats_label.place(x=550, y=150, width=250, height=450)
 
             self.user_recs_button = tk.Button(self.recs_frame, text="User-Based\nRecommendations", background="green")
             self.user_recs_button['command'] = self.user_recs_button_clicked
@@ -177,12 +157,10 @@ class SpotifyApp():
             self.back_button6.place(x=0, y=0)
             self.weather_recs_label = tk.Label(self.weather_recs_frame, text="Weather Recommendations", font=("",16, "bold"), background="white")
             self.weather_recs_label.pack(pady=20)
-            self.weather_recs_name = tk.Label(self.weather_recs_frame, text="playlist_name", font=("", 14, "bold"), background="white")
+            self.weather_recs_name = tk.Label(self.weather_recs_frame, text="", font=("", 14, "bold"), background="white")
             self.weather_recs_name.pack(pady=20)
             self.weather_recs_listbox = tk.Listbox(self.weather_recs_frame, width=70, height=15)
             self.weather_recs_listbox.pack(pady=20)
-            self.scrollbar3 = tk.Scrollbar(self.weather_recs_frame)
-            self.scrollbar3.pack(side=tk.RIGHT, fill=tk.BOTH)
             self.generate_weather_button = tk.Button(self.weather_recs_frame, text="Generate Recommendations")
             self.generate_weather_button.pack()
             self.generate_weather_button['command'] = self.generate_weather_recs
@@ -190,12 +168,29 @@ class SpotifyApp():
             self.add_to_playlist_button3.pack(pady=10)
             self.add_to_playlist_button3['command'] = self.add_to_playlist
 
-            self.another_recs_button = tk.Button(self.recs_frame, text="BLANK", background="green")
-            self.another_recs_button.place(x=300, y=325, width=150, height=150)
+            self.seasonal_recs_button = tk.Button(self.recs_frame, text="Seasonal Recs", background="green")
+            self.seasonal_recs_button['command'] = self.show_seasonal_recs_frame
+            self.seasonal_recs_button.place(x=300, y=325, width=150, height=150)
+            self.seasonal_recs_frame = tk.Frame(self.master, background="white")
+            self.seasonal_recs_frame.place(relwidth=1, relheight=1)
+            self.seasonal_recs_back_button = tk.Button(self.seasonal_recs_frame, text="Back", command=self.show_recs_frame, background="white")
+            self.seasonal_recs_back_button.place(x=0, y=0)
+            tk.Label(self.seasonal_recs_frame, text="Seasonal Recommendations", font=("",16, "bold"), background="white").pack(pady=20)
+            self.seasonal_recs_name = tk.Label(self.seasonal_recs_frame, text="", font=("", 14, "bold"), background="white")
+            self.seasonal_recs_name.pack(pady=20)
+            self.seasonal_recs_listbox = tk.Listbox(self.seasonal_recs_frame, width=70, height=15)
+            self.seasonal_recs_listbox.pack(pady=20)
+            self.generate_seasonal_button = tk.Button(self.seasonal_recs_frame, text="Generate Recommendations")
+            self.generate_seasonal_button.pack()
+            self.generate_seasonal_button['command'] = self.generate_seasonal_recs
+            self.add_to_playlist_button4 = tk.Button(self.seasonal_recs_frame, text="Add to Playlist", state="disabled")
+            self.add_to_playlist_button4.pack(pady=10)
+            self.add_to_playlist_button4['command'] = self.add_to_playlist
 
             self.final_recs_button = tk.Button(self.recs_frame, text="BLANK", background="green")
             self.final_recs_button.place(x=550, y=325, width=150, height=150)
 
+            self.seasonal_recs_frame.place_forget()
             self.weather_recs_frame.place_forget()
             self.user_recs_frame.place_forget()
             self.genre_recs_frame.place_forget()
@@ -253,8 +248,6 @@ class SpotifyApp():
                     print("[ERROR] Access token is still None after waiting")
                     return
 
-                self.stats = Stats(self.access_token)
-                print(f"[DEBUG] Stats object created: {self.stats}")
                 sp = spotipy.Spotify(auth=self.access_token)
                 user_info = sp.me()
                 print(f"[DEBUG] User Info = {user_info}")
@@ -263,18 +256,16 @@ class SpotifyApp():
                 print(f"[DEBUG] User name: {self.user_name}")
 
                 self.welcome_label.config(text=f"Welcome {self.user_name}!", background="white")
-                self.stats_label.config(text=f"{self.user_name}'s Spotify Stats: ", font=("",16, "bold"), background="white")
                 self.recs_label.config(text=f"{self.user_name}'s recommendations: ", font=("",16, "bold"), background="white")
 
-                self.stats_button.config(state=tk.NORMAL)
                 self.recs_button.config(state=tk.NORMAL)
 
                 print(f"[ERROR] Access token in authorize: {self.access_token}")
-                if self.stats and self.access_token:
-                    self.recs = Recommendations(self.stats, self.access_token, self.last_fm_key)
+                if self.access_token:
+                    self.recs = Recommendations(self.access_token, self.last_fm_key)
                     print("[DEBUG] Recommendations object created:", self.recs)
                 else:
-                    print("[ERROR] Stats or access token is missing, recommendations cannot be created.")
+                    print("[ERROR] Access token is missing, recommendations cannot be created.")
 
             wait_for_auth()
 
@@ -284,7 +275,6 @@ class SpotifyApp():
                 messagebox.showerror("Error", "Recs not loaded, please authorize first.")
                 return
             print(f"[DEBUG] Access token in recommendations: {self.access_token}")
-            print(f"[DEBUG] Stats object in recommendations: {self.stats}")
             genre = self.genre_entry.get().strip().lower()
             limit = int(self.num_tracks_entry.get())
             recommendations, uris = self.recs.last_fm_genres(genre, limit)
@@ -336,8 +326,6 @@ class SpotifyApp():
             self.genres = genre_string
 
             self.weather_recs_listbox.delete(0, tk.END)
-            self.results_listbox2.config(yscrollcommand = self.scrollbar3.set)
-            self.scrollbar3.config(command = self.weather_recs_listbox.yview)
 
             for idx, rec in enumerate(recommendations, start=1):
                 self.weather_recs_listbox.insert(tk.END, f"{idx}. {rec}")
@@ -349,9 +337,26 @@ class SpotifyApp():
 
             return weather_playlist_name, genre_string
 
+        def generate_seasonal_recs(self):
+            recommendations, uris, playlist_name = self.recs.seasonal_recs()
+            self.current_track_uris = uris
+            self.seasonal_playlist_name = playlist_name
+
+            self.seasonal_recs_listbox.delete(0, tk.END)
+
+            for idx, rec in enumerate(recommendations, start=1):
+                self.seasonal_recs_listbox.insert(tk.END, f"{idx}. {rec}")
+
+            self.add_to_playlist_button4.config(state=tk.NORMAL)
+            self.seasonal_recs_name.config(text=playlist_name)
+
+            return playlist_name
+
+
         def add_to_playlist(self):
             playlist_name1 = self.playlist_name_option.get().strip()
             playlist_name2 = self.playlist_name_option2.get().strip()
+            playlist_name3 = self.seasonal_playlist_name
             #playlist_name3 = self.weather_playlist_name
 
             if playlist_name1:
@@ -367,16 +372,6 @@ class SpotifyApp():
             sp = spotipy.Spotify(auth=self.access_token)
             user_id = sp.current_user()['id']
 
-            # if playlist_name == playlist_name3: #WEATHER REC EXTRAS
-            #     playlist = sp.user_playlist_create(
-            #         user=user_id,
-            #         name=playlist_name,
-            #         public=True,
-            #         description=self.genres
-            #     )
-            #     tk.Label(self.weather_recs_frame, text=self.genres).place()
-            #     self.update_playlist_cover()
-            # else:
             playlist = sp.user_playlist_create(
                 user=user_id,
                 name=playlist_name,
@@ -405,21 +400,6 @@ class SpotifyApp():
             self.num_tracks_var2.set("")
             self.selected_time_range_option.set("")
 
-
-        def stats_button_clicked(self):
-            if self.stats is None:
-                messagebox.showerror("Error", "Spotify data not loaded yet. Please wait or reauthorize.")
-                return
-
-            self.master.configure(bg="white")
-            self.hide_main_frame()
-            self.stats_frame.place(relwidth=1, relheight=1)
-
-            all_time_artists = self.stats.get_top_artists(limit=3, time_range="long_term")
-            all_time_tracks = self.stats.get_top_tracks(limit=3, time_range="long_term")
-
-            self.all_time_stats_label.config(text="Top Artists (All Time):\n" + "\n".join(all_time_artists) + "\n\nTop Tracks (All Time):\n" + "\n".join(all_time_tracks))
-
         def recs_button_clicked(self):
             self.master.configure(bg="white")
             self.hide_main_frame()
@@ -427,19 +407,16 @@ class SpotifyApp():
 
         def user_recs_button_clicked(self):
             self.master.configure(bg="white")
-            self.hide_stats_frame()
             self.hide_recs_frame()
             self.user_recs_frame.place(relwidth=1, relheight=1)
 
         def genre_button_clicked(self):
             self.master.configure(bg="white")
-            self.hide_stats_frame()
             self.hide_recs_frame()
             self.genre_recs_frame.place(relwidth=1, relheight=1)
 
         def albums_button_clicked(self):
             self.master.configure(bg="white")
-            self.hide_stats_frame()
             self.hide_recs_frame()
             self.albums_frame.place(relwidth=1, relheight=1)
 
@@ -464,39 +441,34 @@ class SpotifyApp():
             self.authorize_button.place_forget()
             self.welcome_label.place_forget()
             self.recs_button.place_forget()
-            self.stats_button.place_forget()
-
-        def hide_stats_frame(self):
-            self.stats_frame.place_forget()
 
         def hide_recs_frame(self):
             self.recs_frame.place_forget()
 
-        def show_stats_frame(self):
-            self.genre_recs_frame.place_forget()
-            self.all_time_stats_label.place(x=550, y=150, width=250, height=450)
+        def show_seasonal_recs_frame(self):
+            self.master.configure(bg="white")
+            self.hide_recs_frame()
+            self.seasonal_recs_frame.place(relwidth=1, relheight=1)
 
         def show_recs_frame(self):
             self.weather_recs_frame.place_forget()
             self.genre_recs_frame.place_forget()
             self.albums_frame.place_forget()
             self.user_recs_frame.place_forget()
+            self.seasonal_recs_frame.place_forget()
+            self.authorize_button.place(x=0, y=0)
             self.recs_frame.place(relwidth=1, relheight=1)
 
         def show_weather_recs_frame(self):
             self.master.configure(bg="white")
             self.hide_recs_frame()
-            self.hide_stats_frame()
             self.weather_recs_frame.place(relwidth=1, relheight=1)
 
         def show_main_frame(self):
-            self.stats_frame.place_forget()
             self.recs_frame.place_forget()
             self.authorize_button.place(x=0, y=0)
             self.welcome_label.place(x=300, y=75)
-            self.stats_button.place(x=100, y=150, width=200, height=200)
             self.recs_button.place(x=450, y=150, width=200, height=200)
-
 
         def refresh_random_album(self):
             if self.recs is None:
