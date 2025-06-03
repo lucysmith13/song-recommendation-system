@@ -18,6 +18,7 @@
 - Milestone 3 (30th june 2025) - UI is easy-to-use and displayed approriately, and code is well-organised.
 - Milestone 4 **FINAL** (8th september 2025) - UI is complete and accessbile, any other small features complete.
 
+
 ### Milestone 1 
 
 ***Basic recommendations and a simple working UI with user authorization.***
@@ -38,3 +39,16 @@ I have split my code into multiple files to make my worflow simpler. I have used
 
 I hope to develop the weather / season / time-of-day recommendations since I haven't completed it yet. I also wish to generate some more unique recommendation algorithms.
 I also need to fix a bug that is occuring in the add_to_playlist function. 
+
+
+### Milestone 2
+
+***More complex recommendations and features***
+
+I have updated my recommendation algorithms to make them more complex so that the songs that are generated are more varied and not basic. Mostly I have worked on the Genre recommendations. Before, I would run into some incorrect song suggestions such as Pop songs in a Metal section. I realised that this was due to error within Last.fm, since I was getting the top tracks for the tag (genre), and some of these top tracks had wrong genres assigned to them. So, I altered my algorithm so that it gets the top artists then it gets the artists top tracks instead, to avoid anomalies that don't fit within the genre. I then further update the genre algorithm so that when a genre is entered, it gathers an array of similar genres and suggests those as well.#
+I have deleted the user stats page, since I don't think this is overly neccessary towards my final result.
+
+#### Targets
+
+I want to clean up the menu to have all the recommendation buttons on the master (main) frame.
+I would like to include weighted recommendations, maybe for my Genre recs. It will work by hardcoding in a decimal for the simialr genres relating to how similar they are to the main / input genre, them it will sort the genres and pick the most relevant. Potentially, I could have the user pick whether they wanted more obscure genres (smaller decimals).
