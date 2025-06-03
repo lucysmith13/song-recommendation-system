@@ -128,20 +128,32 @@ class Recommendations():
                 print(f"[ERROR] Exception while getting last fm genres: {e}")
 
             fallback_similar = {
-                "metal": ["heavy metal", "death metal", "nu metal"],
-                "pop": ["dance", "electropop", "dreampop"],
-                "rock": ["alternative", "classic rock"],
-                "hip hop": ["rap", "trap"],
-                "electronic": ["house", "techno", "edm"]
+                "metal": ["death metal", "heavy metal", "thrash metal", "metalcore", "black metal", "emo"],
+                "punk": ["anarcho punk", "punk rock", "hardcore punk", "crust", "hardcore"],
+                "rock": ["alternative", "hard rock", "classic rock"],
+                "hardcore": ["post-hardcore", "melodic hardcore", "hardcore punk", "beatdown hardcore"],
+                "emo": ["post-hardcore", "screamo", "pop-punk"],
+                "indie": ["indie rock", "indie pop", "alternative", "folk", "pop", "britpop"],
+                "house": ["electronic", "dance", "deep house", "techno", "electro", "progressive house"],
+                "jazz": ["instrumental", "piano", "smooth jazz", "swing", "saxophone"],
+                "blues": ["blues rock", "rock", "jazz", "guitar", "soul", "classic rock"]
+
             }
+
+
+
             print(f"[DEBUG] Using fallback for genre {main_genre}")
             return fallback_similar.get(main_genre.lower(), [])
 
 
-        similar_genres = get_similar_genres(genre)[:2]
+        similar_genres = get_similar_genres(genre)
+        random.shuffle(similar_genres)
+        similar_genres = similar_genres[:2]
         print(f"[DEBUG] Similar genres to '{genre}': {similar_genres}")
         genres = [genre] + similar_genres
         print(f"[DEBUG] Genres: {genres}")
+
+        genre_string = ", ".join(genres)
 
         top_tracks = []
         uris = []
@@ -168,7 +180,7 @@ class Recommendations():
 
             if top_artists_response.status_code != 200:
                 print(f"[ERROR] Failed to get top artists for {genre}")
-                return [], []
+                return [], [], ""
 
             try:
                 artists_data = top_artists_response.json()
@@ -234,9 +246,9 @@ class Recommendations():
                 continue
 
             if len(top_tracks) >= limit:
-                return top_tracks[:limit], uris[:limit]
+                return top_tracks[:limit], uris[:limit], genre_string
 
-        return top_tracks[:limit], uris[:limit]
+        return top_tracks[:limit], uris[:limit], genre_string
 
     def album_chooser(self):
         saved_albums = self.sp.current_user_saved_albums(limit=50)

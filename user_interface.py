@@ -108,6 +108,8 @@ class SpotifyApp():
             generate_recommendations_button = tk.Button(self.genre_recs_frame, text="Generate Recommendations")
             generate_recommendations_button['command'] = self.generate_genre_recommendations
             generate_recommendations_button.pack(pady=10)
+            self.genre_recs_genres = tk.Label(self.genre_recs_frame, text="", font=("", 12, "bold"), background="white")
+            self.genre_recs_genres.pack(pady=10)
             self.results_listbox = tk.Listbox(self.genre_recs_frame, width=70, height=15)
             self.results_listbox.pack(pady=20)
             tk.Label(self.genre_recs_frame, text="Playlist Name:").pack()
@@ -159,6 +161,8 @@ class SpotifyApp():
             self.weather_recs_label.pack(pady=20)
             self.weather_recs_name = tk.Label(self.weather_recs_frame, text="", font=("", 14, "bold"), background="white")
             self.weather_recs_name.pack(pady=20)
+            self.weather_recs_genres = tk.Label(self.weather_recs_frame, text="", font=("", 12, "bold"), background="white")
+            self.weather_recs_genres.pack(pady=10)
             self.weather_recs_listbox = tk.Listbox(self.weather_recs_frame, width=70, height=15)
             self.weather_recs_listbox.pack(pady=20)
             self.generate_weather_button = tk.Button(self.weather_recs_frame, text="Generate Recommendations")
@@ -264,6 +268,7 @@ class SpotifyApp():
                 if self.access_token:
                     self.recs = Recommendations(self.access_token, self.last_fm_key)
                     print("[DEBUG] Recommendations object created:", self.recs)
+                    self.authorize_button.config(state=tk.DISABLED, background="grey")
                 else:
                     print("[ERROR] Access token is missing, recommendations cannot be created.")
 
@@ -277,7 +282,7 @@ class SpotifyApp():
             print(f"[DEBUG] Access token in recommendations: {self.access_token}")
             genre = self.genre_entry.get().strip().lower()
             limit = int(self.num_tracks_entry.get())
-            recommendations, uris = self.recs.last_fm_genres(genre, limit)
+            recommendations, uris, genres = self.recs.last_fm_genres(genre, limit)
             print(f"[DEBUG] Recommendations returned: {recommendations}")
             print(f"[DEBUG] URIs returned: {uris}")
 
@@ -290,6 +295,7 @@ class SpotifyApp():
 
             self.add_to_playlist_button.config(state=tk.NORMAL)
             self.add_to_playlist_button2.config(state=tk.NORMAL)
+            self.genre_recs_genres.config(text=genres)
 
         def generate_user_recs(self):
             if not self.recs:
@@ -334,6 +340,7 @@ class SpotifyApp():
             self.add_to_playlist_button2.config(state=tk.NORMAL)
             self.add_to_playlist_button3.config(state=tk.NORMAL)
             self.weather_recs_name.config(text=weather_playlist_name)
+            self.weather_recs_genres.config(text=self.genres)
 
             return weather_playlist_name, genre_string
 
@@ -394,6 +401,7 @@ class SpotifyApp():
             self.num_tracks_var.set("")
             self.genre_var.set("")
             self.playlist_name_option2_var.set("")
+            self.genre_recs_genres.config(text="")
 
         def clear_user_recs_widgets(self):
             self.results_listbox2.delete(0, tk.END)
