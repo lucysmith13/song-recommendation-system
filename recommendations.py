@@ -128,7 +128,7 @@ class Recommendations():
                 print(f"[ERROR] Exception while getting last fm genres: {e}")
 
             fallback_similar = {
-                "metal": ["death metal", "heavy metal", "thrash metal", "metalcore", "black metal", "emo"],
+                "metal": {"death metal": 0.7, "heavy metal": 0.9, "thrash metal": 0.8, "metalcore": 0.7, "black metal": 0.6, "emo": 0.5},
                 "punk": ["anarcho punk", "punk rock", "hardcore punk", "crust", "hardcore"],
                 "rock": ["alternative", "hard rock", "classic rock"],
                 "hardcore": ["post-hardcore", "melodic hardcore", "hardcore punk", "beatdown hardcore"],
@@ -136,7 +136,12 @@ class Recommendations():
                 "indie": ["indie rock", "indie pop", "alternative", "folk", "pop", "britpop"],
                 "house": ["electronic", "dance", "deep house", "techno", "electro", "progressive house"],
                 "jazz": ["instrumental", "piano", "smooth jazz", "swing", "saxophone"],
-                "blues": ["blues rock", "rock", "jazz", "guitar", "soul", "classic rock"]
+                "blues": ["blues rock", "rock", "jazz", "guitar", "soul", "classic rock"],
+                "garage": ["garage rock", "punk", "indie", "psychedelic"],
+                "jungle": ["drum and bass", "electronic", "footwork", "techno", "dubstep", "dnb"],
+                "drum and bass": ["electronic", "liquid dnb", "neurofunk", "jungle"],
+                "reggae": ["dub", "dancehall", "roots reggae", "ska", "rocksteady", "roots"],
+                "gospel": ["christian", "soul", "contempary gospel", "worship"]
 
             }
 
@@ -146,12 +151,17 @@ class Recommendations():
             return fallback_similar.get(main_genre.lower(), [])
 
 
-        similar_genres = get_similar_genres(genre)
+        similar_genre_weights = get_similar_genres(genre)
+        similar_genres = list(similar_genre_weights.keys())
         random.shuffle(similar_genres)
         similar_genres = similar_genres[:2]
         print(f"[DEBUG] Similar genres to '{genre}': {similar_genres}")
         genres = [genre] + similar_genres
         print(f"[DEBUG] Genres: {genres}")
+
+        genre_weights = {genre: 1.0}
+        for g in similar_genres:
+            genre_weights[g] = similar_genre_weights.get(g, 0.5)
 
         genre_string = ", ".join(genres)
 
@@ -162,7 +172,11 @@ class Recommendations():
         all_artists = []
         url = 'http://ws.audioscrobbler.com/2.0/'
 
-        for genre in genres:
+        for genre in sorted(genres, key=lambda g: genre_weights.get(g, 0.5), reverse=True):
+            weight = genre_weights.get(genre, 0.5)
+            if weight < 0.3:
+                print(f"[DEBUG] Skipping low weight genre: {genre} (weight: {weight})")
+                continue
             params = {
                 'method': 'tag.getTopArtists',
                 'tag': genre,

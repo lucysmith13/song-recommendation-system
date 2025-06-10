@@ -1,3 +1,6 @@
+from PIL import ImageTk, Image
+from io import BytesIO
+
 from NEA.recommendations import Recommendations
 from NEA.spotify_auth import SpotifyAuth
 import threading, requests, time, spotipy, tkinter as tk, flask, webbrowser
@@ -5,7 +8,6 @@ from flask import request
 from flask import Flask
 from dotenv import load_dotenv
 from tkinter import messagebox
-#from PIL import Image, ImageTk
 from spotipy import SpotifyOAuth
 import base64
 
@@ -117,7 +119,7 @@ class SpotifyApp():
             self.playlist_name_option2 = tk.Entry(self.genre_recs_frame, textvariable=self.playlist_name_option2_var)
             self.playlist_name_option2.pack()
             self.add_to_playlist_button = tk.Button(self.genre_recs_frame, text="Add to Playlist", state="disabled")
-            self.add_to_playlist_button['command'] = self.add_to_playlist
+            self.add_to_playlist_button['command'] = lambda: self.add_to_playlist(self.playlist_name_option.get())
             self.add_to_playlist_button.pack(pady=10)
             self.clear_button = tk.Button(self.genre_recs_frame, text="Clear")
             self.clear_button['command'] = self.clear_genre_recs_widgets
@@ -145,7 +147,7 @@ class SpotifyApp():
             self.playlist_name_option.pack()
             self.add_to_playlist_button2 = tk.Button(self.user_recs_frame, text="Add to Playlist", state="disabled")
             self.add_to_playlist_button2.pack(pady=10)
-            self.add_to_playlist_button2['command'] = self.add_to_playlist
+            self.add_to_playlist_button2['command'] = lambda: self.add_to_playlist(self.playlist_name_option2.get())
             self.clear_button2 = tk.Button(self.user_recs_frame, text="Clear")
             self.clear_button2['command'] = self.clear_user_recs_widgets
             self.clear_button2.place(x=750, y=0)
@@ -310,6 +312,11 @@ class SpotifyApp():
                 results, uris = self.recs.user_top_recs(top_artist_limit, similar_artist_limit, total_tracks_limit,selected_time_range_option_value)
                 self.current_track_uris = uris
 
+                if total_tracks_limit > 40:
+                    messagebox.showerror("Error", "No more than 40 tracks can be generated at once.")
+                    total_tracks_limit = 40
+
+
                 self.results_listbox2.delete(0, tk.END)
 
                 self.results_listbox2.config(yscrollcommand = self.scrollbar.set)
@@ -357,14 +364,14 @@ class SpotifyApp():
             self.add_to_playlist_button4.config(state=tk.NORMAL)
             self.seasonal_recs_name.config(text=playlist_name)
 
-            return playlist_name
+            return self.seasonal_playlist_name
 
 
-        def add_to_playlist(self):
+        def add_to_playlist(self, playlist_name):
             playlist_name1 = self.playlist_name_option.get().strip()
             playlist_name2 = self.playlist_name_option2.get().strip()
-            playlist_name3 = self.seasonal_playlist_name
-            #playlist_name3 = self.weather_playlist_name
+            playlist_name3 = "IDK" #MEANT TO BE SEASONAL PLAYLIST NAME
+            # playlist_name3 = self.weather_playlist_name
 
             if playlist_name1:
                 playlist_name = playlist_name1
@@ -375,6 +382,8 @@ class SpotifyApp():
             else:
                 messagebox.showerror("Error", "Please enter a playlist name.")
                 return
+
+            print([f"[DEBUG] Playlist name: {playlist_name}"])
 
             sp = spotipy.Spotify(auth=self.access_token)
             user_id = sp.current_user()['id']
@@ -434,11 +443,11 @@ class SpotifyApp():
             artist = ", ".join(artist['name'] for artist in album['artists'])
             image_url = album['images'][0]['url'] if album['images'] else None
 
-            label = tk.Label(self.albums_frame, text=f"{name} by\n{artist}", bg="white", font=("", 16, "bold"))
-            label.place(x=270, y=100)
+            self.album_name_label = tk.Label(self.albums_frame, text=f"{name} by\n{artist}", bg="white", font=("", 16, "bold"))
+            self.album_name_label.place(x=270, y=100)
 
             img_data = requests.get(image_url).content
-            img = Image.open(bytes(img_data)).resize((300,300))
+            img = Image.open(BytesIO(img_data)).resize((300, 300))
             photo = ImageTk.PhotoImage(img)
 
             image_label = tk.Label(self.albums_frame, image=photo, bg="white")
@@ -482,4 +491,5 @@ class SpotifyApp():
             if self.recs is None:
                 print("[ERROR] Recommendations not loaded yet, authorize first.")
                 return None
+            self.album_name_label.config(text="")
             self.albums_button_clicked()
